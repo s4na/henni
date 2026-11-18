@@ -22,14 +22,21 @@ end
 
 ## 自分のRubyプロジェクトで使う
 
-アプリで使用するテストフレームワーク（RSpec、Minitest、または両方）をGemfileに含めてください。同じtestグループに取得したhenniの絶対パスを指定し、`bundle install` 後にプロジェクトのルートから起動します。対象ファイルをプロジェクト相対パスで一つ指定してください。
+アプリで使用するテストフレームワーク（RSpec、Minitest、または両方）とともに、GemfileのtestグループにGitHubリポジトリを指定します。
 
 ```ruby
-gem "henni", path: "/absolute/path/to/henni", group: :test
+gem "henni", github: "s4na/henni", branch: "main", group: :test
 ```
 
 ```sh
+bundle install
 bundle exec henni run --timeout 30 lib/discount.rb > henni-result.json
+```
+
+`Gemfile.lock` が取得したリビジョンを固定します。mainの更新を取り込むには `bundle update henni` を実行してください。mainへのpushごとにGitHub Actionsが専用ワークフローの実行番号をパッチ番号に使い、元のコミットSHAを記録したコミットをmainに追加します。利用中のバージョンと元のSHAは次のコマンドで確認できます。
+
+```sh
+bundle exec ruby -e 's = Gem.loaded_specs.fetch("henni"); puts s.version, s.metadata.fetch("source_revision")'
 ```
 
 - メソッド本体にある `>=`／`>`、`<=`／`<`、`==`／`!=` を対になる演算子へ置換し、生成したソースを再解析します。
