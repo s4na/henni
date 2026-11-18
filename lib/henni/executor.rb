@@ -33,6 +33,10 @@ module Henni
       env = {}
       if ENV["BUNDLE_GEMFILE"] && File.dirname(File.expand_path(ENV["BUNDLE_GEMFILE"])) == Dir.pwd
         env["BUNDLE_GEMFILE"] = File.join(work, File.basename(ENV.fetch("BUNDLE_GEMFILE")))
+        %i[with without only].each do |setting|
+          groups = Array(Bundler.settings[setting])
+          env["BUNDLE_#{setting.upcase}"] = groups.join(":")
+        end
         path = Bundler.settings.path
         env["BUNDLE_PATH"] = File.expand_path(path.base_path, Bundler.root) unless path.use_system_gems?
       end
