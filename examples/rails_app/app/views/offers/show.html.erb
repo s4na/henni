@@ -1,0 +1,9 @@
+<button type="button" id="check-discount">Check discount</button>
+<output id="discount"></output>
+<script>
+  document.querySelector("#check-discount").addEventListener("click", async () => {
+    const response = await fetch("<%= offer_path(@offer, format: :json) %>");
+    const offer = await response.json();
+    document.querySelector("#discount").textContent = offer.discount ? "Discount available" : "Regular price";
+  });
+</script>

@@ -1,0 +1,5 @@
+#!/usr/bin/env ruby
+require "henni"
+
+Signal.trap("TERM") { raise Interrupt }
+exit Henni.run(ARGV)
