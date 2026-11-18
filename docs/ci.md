@@ -1,6 +1,6 @@
 # GitHub Actionsの設計
 
-状態: 実装予定のCI仕様。以下のworkflowは設計例であり、この文書の追加だけでは実行されない。gem、Rake task、runner、fixtureの実装に合わせて `.github/workflows/` へ追加する。
+状態: [実装済みのCI](../.github/workflows/ci.yml)はRuby 3.4／4.0でRSpecとgem buildを実行します。以下は今後のジョブを含む設計例です。
 
 判定、隔離、差分、キャッシュの契約は[本体設計](design.md)を参照する。
 
@@ -21,7 +21,7 @@
 
 coreの全組合せとRailsの全組合せを無条件に掛け合わせない。最小Prism版はcoreで確認し、Railsは主に固定lockfileで動かす。RSpec / Minitestの下限・上限は、実装時に対応APIを確認し、lockfile付きfixtureで確定する。
 
-最初のcore workflowの形は次のとおり。Rake taskとgemspecはこれから実装するものである。Prism最小版、Rails fixture、macOSのジョブは上の表に従って追加する。
+以下はRake taskを導入する段階のcore workflow案である。Prism最小版、Rails fixture、macOSのジョブは上の表に従って追加する。
 
 ```yaml
 name: CI
