@@ -17,11 +17,12 @@ module Henni
       end
     end
 
-    def excluded?(path)
+    def excluded?(path, root:)
       parts = path.split("/")
       parts.each_index.any? do |index|
         prefix = parts.take(index + 1).join("/")
-        omit?(prefix) || (index.positive? && EMPTY_DIRS.include?(parts.first))
+        omit?(prefix) || (index.positive? && EMPTY_DIRS.include?(parts.first) &&
+                         File.lstat(File.join(root, parts.first)).directory?)
       end
     end
 
@@ -74,7 +75,7 @@ module Henni
     def copy_link(root, path, source, output)
       resolved = Pathname.new(File.realpath(source))
       referent = resolved.relative_path_from(Pathname.new(root)).to_s
-      if referent == ".." || referent.start_with?("../") || excluded?(referent)
+      if referent == ".." || referent.start_with?("../") || excluded?(referent, root: root)
         raise ArgumentError, "link points outside snapshot inputs: #{path}"
       end
 

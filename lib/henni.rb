@@ -43,7 +43,7 @@ module Henni
     end
 
     input = Snapshot.new(excludes)
-    raise ArgumentError, "target is excluded from snapshot: #{target}" if input.excluded?(target)
+    raise ArgumentError, "target is excluded from snapshot: #{target}" if input.excluded?(target, root: Dir.pwd)
 
     report = { schema_version: 1, target: target, mutations: [], complete: false }
     Dir.mktmpdir("henni-input") do |tmp|
