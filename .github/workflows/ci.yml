@@ -34,7 +34,7 @@ jobs:
         with:
           ruby-version: '3.4'
       - name: Lint Ruby source, specs, and example applications
-        run: gem exec -v 1.92.3 rubocop --lint --enable-pending-cops lib exe/henni Gemfile henni.gemspec spec examples
+        run: gem exec -v 1.92.3 rubocop --lint --enable-pending-cops lib exe/henni Gemfile henni.gemspec script spec examples
 
   ruby:
     runs-on: ubuntu-latest
