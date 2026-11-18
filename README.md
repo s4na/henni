@@ -63,11 +63,14 @@ bundle exec henni run --rspec-pattern 'checks/**/*_spec.rb' --minitest-pattern '
 
 両フレームワークのsystemテストはheadless Chromeを操作します。価格の境界を変えると、それぞれのmodel・controller・HTTP・systemテストが失敗します。在庫の未検証の境界を変えると両スイートが通り、同じrunで `killed` と `survived` が1件ずつ記録されます。CIはRuby 3.4／4.0とMinitest 6.1、Ruby 3.4とMinitest 5.25.4で検証します。
 
-リポジトリのルートで `bundle install` 後、Chromeが利用できる環境で実行してください。
+HTTPリクエストを通じた変異検出は、DBを使わない小さな見積もりAPIでも検証します。RSpecが割引開始の10個、Minitestが注文上限の50個を担当し、片方だけなら2件中1件、両方なら2件とも変異を検出します。フォームとJSONでの正常な注文、入力エラー、非対応のHTTPメソッド、Railsの起動失敗もテストします。アプリとルートを1ファイルに収める構成は、[Rails公式のAction Controller再現テンプレート](https://github.com/rails/rails/blob/main/guides/bug_report_templates/action_controller.rb)を参考にしました。
+
+リポジトリのルートで `bundle install` 後に実行してください。SQLiteアプリのsystemテストにはChromeを使います。
 
 ```sh
 bundle exec rspec                        # gemのテスト全体
-bundle exec rspec spec/rails_e2e_spec.rb  # Rails E2Eのみ
+bundle exec rspec spec/rails_e2e_spec.rb  # SQLiteとChromeを使うRails E2E
+bundle exec rspec spec/controller_app_spec.rb  # 見積もりAPIのE2E（DB・Chrome不要）
 ```
 
 検証したDB構成は、各作業コピー内のSQLiteファイルです。PostgreSQLやRedisなどの外部サービスを使う場合は、テスト環境側で状態を隔離する必要があります。
