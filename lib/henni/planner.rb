@@ -21,7 +21,7 @@ module Henni
 
     def apply(mutation)
       changed = @source.dup
-      changed[mutation[:offset], mutation[:before].bytesize] = mutation[:after]
+      changed.bytesplice(mutation[:offset], mutation[:before].bytesize, mutation[:after])
       changed
     end
 

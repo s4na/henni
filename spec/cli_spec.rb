@@ -111,11 +111,22 @@ RSpec.describe "henni run" do
     expect([code, report.dig("baseline", "status")]).to eq([2, "timeout"])
   end
 
+  it "returns incomplete JSON when the planner encounters an encoding error" do
+    File.binwrite(File.join(@project, target), "# encoding: ASCII-8BIT\ndef \xff(x) = x <= 2\n".b)
+    code, report = run_cli
+    expect(code).to eq(2)
+    expect(report).to include("complete" => false, "target" => target, "error" => a_string_matching(/UTF-8/))
+  end
+
   it "uses byte offsets inside method bodies" do
     source = "TOP = 1 >= 2\ndef 境界(値) = 値 <= 2 # <=\n".b
-    planner = Henni::Planner.new("lib/example.rb", source)
-    mutations = planner.plan
-    expect(mutations.size).to eq(1)
-    expect(planner.apply(mutations.first)).to eq("TOP = 1 >= 2\ndef 境界(値) = 値 < 2 # <=\n".b)
+    [source, source.dup.force_encoding("UTF-8")].each do |input|
+      planner = Henni::Planner.new("lib/example.rb", input)
+      mutations = planner.plan
+      expect(mutations.size).to eq(1)
+      changed = planner.apply(mutations.first)
+      expect(changed.encoding).to eq(input.encoding)
+      expect(changed.b).to eq("TOP = 1 >= 2\ndef 境界(値) = 値 < 2 # <=\n".b)
+    end
   end
 end

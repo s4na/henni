@@ -103,8 +103,15 @@ module Henni
     puts JSON.pretty_generate(report)
     return 2 unless report[:complete]
     counts.key?("survived") ? 1 : 0
-  rescue ArgumentError, OptionParser::ParseError, SystemCallError, JSON::ParserError => e
-    puts JSON.pretty_generate((report || { schema_version: 1 }).merge(complete: false, error: e.message))
+  rescue StandardError => e
+    message = e.message.encode("UTF-8", invalid: :replace, undef: :replace).scrub
+    failure = { schema_version: 1, complete: false, error: message }
+    begin
+      puts JSON.pretty_generate((report || {}).merge(failure))
+    rescue JSON::GeneratorError, EncodingError
+      # A path or a diagnostic in the partial report may itself be invalid UTF-8.
+      puts JSON.pretty_generate(failure)
+    end
     2
   rescue Interrupt
     puts JSON.pretty_generate((report || { schema_version: 1 }).merge(complete: false, error: "interrupted"))
