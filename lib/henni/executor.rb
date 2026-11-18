@@ -31,8 +31,15 @@ module Henni
 
     def execute(work, result_path)
       env = {}
-      if ENV["BUNDLE_GEMFILE"] && File.dirname(File.expand_path(ENV["BUNDLE_GEMFILE"])) == Dir.pwd
-        env["BUNDLE_GEMFILE"] = File.join(work, File.basename(ENV.fetch("BUNDLE_GEMFILE")))
+      gemfile = ENV["BUNDLE_GEMFILE"]
+      if gemfile && File.identical?(File.dirname(File.expand_path(gemfile)), Dir.pwd)
+        env["BUNDLE_GEMFILE"] = File.join(work, File.basename(gemfile))
+        if ENV["BUNDLE_LOCKFILE"]
+          lockfile = File.realdirpath(ENV.fetch("BUNDLE_LOCKFILE"))
+          prefix = File.realpath(Dir.pwd) + "/"
+          raise ArgumentError, "bundle lockfile must be inside the project" unless lockfile.start_with?(prefix)
+          env["BUNDLE_LOCKFILE"] = File.join(work, lockfile.delete_prefix(prefix))
+        end
         %i[with without only].each do |setting|
           groups = Array(Bundler.settings[setting])
           env["BUNDLE_#{setting.upcase}"] = groups.join(":")

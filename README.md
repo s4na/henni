@@ -36,7 +36,7 @@ bundle exec henni run --timeout 30 lib/discount.rb > henni-result.json
 - プロジェクトを一時ディレクトリにコピーし、元コードのbaselineと各変異をそれぞれ新しいコピー、新しいRubyプロセスで実行します。RSpecは `spec/` を固定seedで実行し、対象ファイルの `require`／`require_relative` と実行したexampleを照合します。
 - 標準出力はJSON、RSpecのログは標準エラー出力です。終了コードは0が全変異を検出または対象なし、1が生き残りあり、2がbaseline失敗・実行障害・時間切れなどの判定不能、130が割込みです。既定の制限時間は各RSpecプロセス60秒です。
 
-`.git`、`.bundle`、`vendor/bundle`、`henni-report` はコピー対象から除きます。コピー対象にsymlinkや特殊ファイルがある場合は停止します。テストはコピー内のソースを読み込み、依存gemはインストール済みのものを使います。
+`.git`、`.bundle`、`vendor/bundle`、`henni-report` はコピー対象から除きます。コピー対象にsymlinkや特殊ファイルがある場合は停止します。プロジェクト直下のGemfileで起動した場合、lockfileもプロジェクト内に置いてください。テストはコピー内のソースとlockfileを読み込み、依存gemはインストール済みのものを使います。
 
 ## Railsでの検証範囲
 

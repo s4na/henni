@@ -1,5 +1,5 @@
 PATH
-  remote: ../../../../../../../Users/nabetani.satoshi/.codex/worktrees/henni-ruby-cli/henni
+  remote: .
   specs:
     henni (0.1.0)
       prism (~> 2.1)
