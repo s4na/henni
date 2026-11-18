@@ -46,13 +46,14 @@ RSpec.describe "henni run" do
     original = File.binread(source)
     alias_path = File.join(@project, "lib/alias.rb")
     File.symlink(source, alias_path)
+    File.symlink(source, File.join(@project, "lib/second_alias.rb"))
     File.write(spec_path, <<~SPEC)
       require_relative "../lib/alias"
       RSpec.describe(Discount) { it { expect(Discount.eligible?(1_000)).to be(true) } }
     SPEC
     UNIXServer.open(File.join(@project, "puma.sock")) do
       code, report = run_cli
-      expect([code, report["counts"]]).to eq([0, { "killed" => 1 }])
+      expect([code, report["counts"]]).to eq([0, { "killed" => 1 }]), report.inspect
     end
     expect(File.binread(source)).to eq(original)
     expect(File.readlink(alias_path)).to eq(source)

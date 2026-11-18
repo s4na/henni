@@ -29,8 +29,8 @@ module Henni
           FileUtils.copy_file(source, output, true)
         when "link"
           resolved = File.realpath(source)
-          relative = Pathname.new(resolved).relative_path_from(Pathname.new(root)).to_s
-          if relative == ".." || relative.start_with?("../") || OMIT.any? { |entry| relative == entry || relative.start_with?(entry + "/") }
+          referent = Pathname.new(resolved).relative_path_from(Pathname.new(root)).to_s
+          if referent == ".." || referent.start_with?("../") || OMIT.any? { |entry| referent == entry || referent.start_with?(entry + "/") }
             raise ArgumentError, "link points outside snapshot inputs: #{path}"
           end
           # An absolute source link must still resolve inside every worker copy.
