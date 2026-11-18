@@ -16,6 +16,15 @@ def assertion_failure?(failure)
   end
 end
 
+def aggregated_failure_leaves(failure)
+  case failure
+  when RSpec::Expectations::MultipleExpectationsNotMetError, RSpec::Core::MultipleExceptionError
+    failure.all_exceptions.flat_map { |cause| aggregated_failure_leaves(cause) }
+  else
+    [failure]
+  end
+end
+
 target, output, pattern = ARGV.shift(3)
 report = Henni::WorkerReport.new(target, output)
 args = ["--seed", "12345", "--no-fail-fast"]
@@ -31,8 +40,15 @@ exit_code = RSpec::Core::Runner.run(args, $stderr, $stderr)
 config = RSpec.configuration
 examples = config.reporter.examples.map do |example|
   failure = example.exception
-  { id: example.id, status: example.execution_result.status, assertion: failure && assertion_failure?(failure),
-    exception: failure&.class&.name }
+  entry = { id: example.id, status: example.execution_result.status, assertion: failure && assertion_failure?(failure),
+            exception: failure&.class&.name }
+  if failure
+    leaves = aggregated_failure_leaves(failure)
+    if leaves != [failure]
+      entry[:causes] = leaves.map { |cause| { assertion: assertion_failure?(cause), exception: cause.class.name } }
+    end
+  end
+  entry
 end
 report.write(exit_code: exit_code, dry_run: config.dry_run, suite_error: !!RSpec.world.non_example_failure,
              expected_ids: RSpec.world.all_examples.map(&:id), examples: examples)

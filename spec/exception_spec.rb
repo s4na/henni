@@ -45,6 +45,38 @@ RSpec.describe "mutation runtime exceptions" do
     expect(suite.fetch("baseline_recheck")).to include("status" => "passed")
   end
 
+  [
+    ["Name.of(nil)", "NoMethodError", 0],
+    ['raise IOError if Name.of({ name: "member" }) != "member"', "IOError", 2]
+  ].each do |last_statement, exception_name, expected_code|
+    it "handles an aggregated assertion and #{exception_name} without losing either cause" do
+      FileUtils.mkdir_p(File.join(@project, "spec"))
+      File.write(File.join(@project, "spec/name_spec.rb"), <<~RUBY)
+        require_relative "../lib/name"
+        RSpec.describe(Name) do
+          it do
+            aggregate_failures do
+              expect(Name.of({ name: "member" })).to eq("member")
+              #{last_statement}
+            end
+          end
+        end
+      RUBY
+      code, report = run_report("rspec")
+      expect(code).to eq(expected_code)
+      suite = report.fetch("mutations").first.fetch("suites").fetch("rspec")
+      expect(suite.fetch("failures").first.fetch("causes").map { |cause| cause.fetch("exception") })
+        .to contain_exactly("RSpec::Expectations::ExpectationNotMetError", exception_name)
+      if expected_code.zero?
+        expect(suite).to include("status" => "killed", "killed_by" => "exception")
+        expect(suite.fetch("baseline_recheck")).to include("status" => "passed")
+      else
+        expect(suite.fetch("status")).to eq("error")
+        expect(suite).not_to have_key("baseline_recheck")
+      end
+    end
+  end
+
   it "also detects runtime exceptions through Minitest's UnexpectedError wrapper" do
     FileUtils.mkdir_p(File.join(@project, "test"))
     File.write(File.join(@project, "test/name_test.rb"), <<~RUBY)

@@ -180,8 +180,14 @@ module Henni
       killed_by = if verdict == "killed"
                     failures.all? { |example| example[:assertion] } ? "assertion" : "exception"
                   end
+      failure_details = failures.map do |example|
+        detail = example.slice(:id, :exception)
+        causes = example[:causes]
+        detail[:causes] = causes if causes && causes.size > 1
+        detail
+      end
       { status: verdict, killed_by: killed_by, reason: reason, digest: result[:digest], loaded: result[:loaded], example_ids: ids,
-        failures: failures.map { |example| example.slice(:id, :exception, :causes) } }.compact
+        failures: failure_details }.compact
     end
   end
 end
