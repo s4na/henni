@@ -63,6 +63,12 @@ bundle exec henni run --rspec-pattern 'checks/**/*_spec.rb' --minitest-pattern '
 
 JSONの各 `suites` に `duration_seconds`（子プロセス起動から終了処理まで）、`timeout_seconds`、`timeout_source` を記録します。計測済みの成功baselineから変異の制限を算出した場合は `baseline_duration_seconds` も記録します。計測値が無効・未取得なら設定値を使い、`timeout_source` は `configured` とします。コピー時間は含みません。変異の時間切れは `reason` でbaseline通過後の実行であることを示しますが、変異が原因と断定するものではありません。負荷変動による時間切れも判定不能のまま扱います。
 
+## 例外による変異検出
+
+assertionの失敗は `killed_by: "assertion"` として記録します。変異後のテストで `NoMethodError`、`TypeError`、`ArgumentError`、`NameError`、`IndexError`、`KeyError`、`RangeError`、`ZeroDivisionError`、`FrozenError` が起きた場合は、同じsnapshotの元コードで同じスイートをもう一度実行します。対象のロード・digest・全テストIDが一致し、元コードが再度成功したときだけ `killed_by: "exception"` と判定します。再確認は元コードの実行なので、制限時間には `--timeout` の設定値を使います。再確認の結果はスイートの `baseline_recheck` に残ります。
+
+起動・suiteの失敗、未完了のテスト、`IOError`・`Errno::*`・DB接続エラーなど、上記以外の例外は引き続き判定不能です。再確認は一度だけなので、非決定的なテストの安定性を保証するものではありません。
+
 ## Railsでの検証範囲
 
 同じRails 8.1＋SQLiteアプリで、次のテストをbaselineと各変異で実際に起動し、gem側のE2Eテストが各テストのIDを照合します。
