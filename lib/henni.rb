@@ -1,3 +1,5 @@
+require "fileutils"
+require "tmpdir"
 require "json"
 require "optparse"
 require "pathname"
@@ -11,6 +13,7 @@ module Henni
   def self.snapshot(root, dest)
     raise ArgumentError, "temporary directory must be outside the project" if dest.start_with?(root + "/") || root == "/"
 
+    root = File.realpath(root)
     Dir.mkdir(dest)
     copy = lambda do |relative|
       Dir.each_child(File.join(root, relative)) do |name|
@@ -24,6 +27,17 @@ module Henni
           copy.call(path)
         when "file"
           FileUtils.copy_file(source, output, true)
+        when "link"
+          resolved = File.realpath(source)
+          relative = Pathname.new(resolved).relative_path_from(Pathname.new(root)).to_s
+          if relative == ".." || relative.start_with?("../") || OMIT.any? { |entry| relative == entry || relative.start_with?(entry + "/") }
+            raise ArgumentError, "link points outside snapshot inputs: #{path}"
+          end
+          # An absolute source link must still resolve inside every worker copy.
+          link = Pathname.new(resolved).relative_path_from(Pathname.new(File.dirname(source)))
+          File.symlink(link, output)
+        when "socket", "fifo"
+          warn "henni: skipping runtime endpoint #{path}"
         else
           raise ArgumentError, "unsupported project entry: #{path}"
         end

@@ -1,4 +1,5 @@
 require "bundler"
+require "digest"
 require "fileutils"
 require "tmpdir"
 
@@ -75,7 +76,6 @@ module Henni
       pid = Process.spawn(env, RbConfig.ruby, "-Ilib", worker, @target, result_path, *Array(pattern),
                           chdir: work, pgroup: true, out: :err)
       deadline = Process.clock_gettime(Process::CLOCK_MONOTONIC) + @timeout
-      finished = nil
       loop do
         finished = Process.waitpid2(pid, Process::WNOHANG)
         return finished.last if finished
@@ -85,11 +85,9 @@ module Henni
     ensure
       if pid
         begin
-          Process.kill("TERM", -pid)
+          signal_group("TERM", pid)
           sleep 0.1
-          # Darwin can report EPERM for a group containing only a zombie.
-          Process.waitpid(pid, Process::WNOHANG) unless finished
-          Process.kill("KILL", -pid)
+          signal_group("KILL", pid)
         rescue Errno::ESRCH
           # The process group has already exited.
         end
@@ -101,11 +99,25 @@ module Henni
       end
     end
 
+    def signal_group(signal, pid)
+      Process.kill(signal, -pid)
+    rescue Errno::EPERM => denied
+      # Darwin may return EPERM for a group containing only a zombie. Reap
+      # the leader and retry; a live group's real permission error matters.
+      begin
+        raise denied unless Process.waitpid(pid, Process::WNOHANG)
+      rescue Errno::ECHILD
+        raise denied
+      end
+      Process.kill(signal, -pid)
+    end
+
     def classify(name, result, status, digest, previous)
       label = name == "rspec" ? "RSpec" : "Minitest"
       examples = result.fetch(:examples)
       ids = examples.map { |example| example.fetch(:id) }.sort
       failures = examples.select { |example| example[:status] == "failed" }
+      detected = previous && result[:loaded] && !status.success? && failures.all? { |example| example[:assertion] }
       reason = if !status.exited? || status.exitstatus != result[:exit_code] || result[:suite_error]
                  "#{label} process or suite error"
                elsif digest != result[:digest] || (previous && previous[:loaded] != result[:loaded])
@@ -114,9 +126,9 @@ module Henni
                  "#{label} did not run the expected examples"
                elsif examples.any? { |example| !%w[passed failed].include?(example[:status]) }
                  "pending or incomplete example"
-               elsif !failures.empty?
-                 "baseline or non-expectation failure" unless previous && result[:loaded] && failures.all? { |example| example[:assertion] } && !status.success?
-               elsif !status.success?
+               elsif !failures.empty? && !detected
+                 "baseline or non-expectation failure"
+               elsif failures.empty? && !status.success?
                  "#{label} exited unsuccessfully"
                end
       verdict = if reason then "error"

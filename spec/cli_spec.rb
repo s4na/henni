@@ -1,5 +1,6 @@
 require "fileutils"
 require "json"
+require "socket"
 require "open3"
 require "tmpdir"
 require "henni"
@@ -38,6 +39,30 @@ RSpec.describe "henni run" do
     expect(strong.fetch("counts")).to eq("killed" => 1)
     expect(strong["mutations"].first["id"]).to eq(weak["mutations"].first["id"])
     expect(File.binread(path)).to eq(original)
+  end
+
+  it "keeps internal links in the worker and skips Unix sockets" do
+    source = File.join(@project, target)
+    original = File.binread(source)
+    alias_path = File.join(@project, "lib/alias.rb")
+    File.symlink(source, alias_path)
+    File.write(spec_path, <<~SPEC)
+      require_relative "../lib/alias"
+      RSpec.describe(Discount) { it { expect(Discount.eligible?(1_000)).to be(true) } }
+    SPEC
+    UNIXServer.open(File.join(@project, "puma.sock")) do
+      code, report = run_cli
+      expect([code, report["counts"]]).to eq([0, { "killed" => 1 }])
+    end
+    expect(File.binread(source)).to eq(original)
+    expect(File.readlink(alias_path)).to eq(source)
+  end
+
+  it "stops before following a link to external data" do
+    File.symlink(Dir.tmpdir, File.join(@project, "outside"))
+    code, report = run_cli
+    expect(code).to eq(2)
+    expect(report.fetch("error")).to include("outside snapshot inputs")
   end
 
   it "leaves the mutation pending on baseline failure" do
