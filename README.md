@@ -22,7 +22,7 @@ end
 
 ## 自分のRubyプロジェクトで使う
 
-Gemfileのtestグループに取得したhenniの絶対パスを指定し、`bundle install` 後にプロジェクトのルートから起動します。対象ファイルをプロジェクト相対パスで一つ指定してください。
+アプリで使用するテストフレームワーク（RSpec、Minitest、または両方）をGemfileに含めてください。同じtestグループに取得したhenniの絶対パスを指定し、`bundle install` 後にプロジェクトのルートから起動します。対象ファイルをプロジェクト相対パスで一つ指定してください。
 
 ```ruby
 gem "henni", path: "/absolute/path/to/henni", group: :test

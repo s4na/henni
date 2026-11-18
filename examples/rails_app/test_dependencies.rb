@@ -1,3 +1,4 @@
+gem "rspec", "~> 3.13"
 gem "minitest", ENV.fetch("HENNI_TEST_MINITEST", "6.1.0")
 gem "rails", "~> 8.1.0"
 gem "rspec-rails", "~> 8.0"

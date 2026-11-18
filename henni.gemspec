@@ -10,6 +10,4 @@ Gem::Specification.new do |s|
   s.bindir = "exe"
   s.executables = ["henni"]
   s.add_dependency "prism", "~> 2.1"
-  s.add_dependency "minitest", ">= 5.25.4", "< 7"
-  s.add_dependency "rspec", "~> 3.13"
 end

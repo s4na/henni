@@ -2,9 +2,7 @@ PATH
   remote: .
   specs:
     henni (0.1.0)
-      minitest (>= 5.25.4, < 7)
       prism (~> 2.1)
-      rspec (~> 3.13)
 
 GEM
   remote: https://rubygems.org/
@@ -293,6 +291,7 @@ DEPENDENCIES
   minitest (= 6.1.0)
   puma (>= 6)
   rails (~> 8.1.0)
+  rspec (~> 3.13)
   rspec-rails (~> 8.0)
   selenium-webdriver (~> 4.0)
   sqlite3 (~> 2.0)
