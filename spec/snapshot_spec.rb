@@ -34,6 +34,31 @@ RSpec.describe Henni::Snapshot do
     expect(File).to exist(File.join(@source, "tmp/cache/item"))
   end
 
+  it "preserves regular files and internal links with generated-directory names" do
+    write_input("log")
+    write_input("var/runtime/input")
+    File.symlink("var/runtime", File.join(@source, "tmp"))
+
+    described_class.new([]).copy(@source, @dest)
+
+    expect(File.read(File.join(@dest, "log"))).to eq("sample")
+    expect(File.symlink?(File.join(@dest, "tmp"))).to be(true)
+    expect(File.read(File.join(@dest, "tmp/input"))).to eq("sample")
+    expect(File.realpath(File.join(@dest, "tmp"))).to eq(File.join(@dest, "var/runtime"))
+  end
+
+  it "rejects external links with generated-directory names" do
+    File.symlink(File.dirname(@source), File.join(@source, "coverage"))
+
+    expect { described_class.new([]).copy(@source, @dest) }.to raise_error(ArgumentError, /outside snapshot inputs/)
+  end
+
+  it "rejects dangling links with generated-directory names" do
+    File.symlink("missing", File.join(@source, "log"))
+
+    expect { described_class.new([]).copy(@source, @dest) }.to raise_error(Errno::ENOENT)
+  end
+
   it "prunes matching directories and nested files with project-relative patterns" do
     %w[node_modules/example/index.js public/assets/nested/bundle.js public/assets/nested/input.json].each do |path|
       write_input(path)

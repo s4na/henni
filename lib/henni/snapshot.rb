@@ -50,8 +50,8 @@ module Henni
         source = File.join(root, path)
         output = File.join(dest, path)
         type = File.lstat(source).ftype
-        if EMPTY_DIRS.include?(path)
-          Dir.mkdir(output) if type == "directory"
+        if EMPTY_DIRS.include?(path) && type == "directory"
+          Dir.mkdir(output)
           next
         end
 
