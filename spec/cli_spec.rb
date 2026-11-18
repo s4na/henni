@@ -63,6 +63,22 @@ RSpec.describe "henni run" do
     expect([code, report.fetch("counts")]).to eq([2, { "error" => 1 }])
   end
 
+  it "does not declare survival when the mutant silently drops an example" do
+    File.open(spec_path, "a") do |file|
+      file.puts <<~SPEC
+        RSpec.describe Discount do
+          if Discount.eligible?(1_000)
+            it("handles a higher price") { expect(Discount.eligible?(2_000)).to be(true) }
+          end
+        end
+      SPEC
+    end
+    code, report = run_cli
+    expect(code).to eq(2)
+    expect(report.dig("baseline", "example_ids").size).to eq(2)
+    expect(report.fetch("mutations").first).to include("status" => "error", "reason" => "RSpec did not run the expected examples")
+  end
+
   it "reports a deadline independently of expectation failures" do
     File.open(spec_path, "a") { |file| file.puts "sleep 20" }
     code, report = run_cli("--timeout", "0.5")

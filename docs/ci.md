@@ -1,6 +1,6 @@
 # GitHub Actionsの設計
 
-状態: [実装済みのCI](../.github/workflows/ci.yml)はRuby 3.4／4.0でRSpecとgem buildを実行します。以下は今後のジョブを含む設計例です。
+状態: [実装済みのCI](../.github/workflows/ci.yml)はRuby 3.4／4.0でgemのRSpec、Rails 8.1のrequest specとheadless Chromeのsystem specを使うE2E、gem buildを実行します。以下は今後のジョブを含む設計例です。
 
 判定、隔離、差分、キャッシュの契約は[本体設計](design.md)を参照する。
 

@@ -36,7 +36,20 @@ bundle exec henni run --timeout 30 lib/discount.rb > henni-result.json
 - プロジェクトを一時ディレクトリにコピーし、元コードのbaselineと各変異をそれぞれ新しいコピー、新しいRubyプロセスで実行します。RSpecは `spec/` を固定seedで実行し、対象ファイルの `require`／`require_relative` と実行したexampleを照合します。
 - 標準出力はJSON、RSpecのログは標準エラー出力です。終了コードは0が全変異を検出または対象なし、1が生き残りあり、2がbaseline失敗・実行障害・時間切れなどの判定不能、130が割込みです。既定の制限時間は各RSpecプロセス60秒です。
 
-初版はローカルファイルで完結するRuby＋RSpec向けです。`.git`、`.bundle`、`vendor/bundle`、`henni-report` はコピー対象から除きます。コピー対象にsymlinkや特殊ファイルがある場合は停止します。テストはコピー内のソースを読み込み、依存gemはインストール済みのものを使います。DBなどの外部サービスの隔離、Rails、Minitest、差分指定、並列実行は今後の実装範囲です。
+`.git`、`.bundle`、`vendor/bundle`、`henni-report` はコピー対象から除きます。コピー対象にsymlinkや特殊ファイルがある場合は停止します。テストはコピー内のソースを読み込み、依存gemはインストール済みのものを使います。
+
+## Railsでの検証範囲
+
+Ruby 3.4／4.0の両方で、Rails 8.1・rspec-rails 8.1・SQLiteを使うアプリからCLIを起動するE2Eテストを実行します。request specはJSONの値を確認し、system specはheadless Chromeでボタンを押し、JavaScriptが同じAPIから取得した割引結果を画面で確認します。gem側のテストでは、価格の境界を変えると両方のspecが失敗し、在庫の未検証の境界を変えると両方が通ることをJSONから検証します。
+
+リポジトリのルートで `bundle install` 後、Chromeが利用できる環境で実行してください。
+
+```sh
+bundle exec rspec                        # gemのテスト全体
+bundle exec rspec spec/rails_e2e_spec.rb  # Rails E2Eのみ
+```
+
+検証したDB構成は、各作業コピー内のSQLiteファイルです。PostgreSQLやRedisなどの外部サービスを使う場合は、テスト環境側で状態を隔離する必要があります。
 
 ## 設計
 
