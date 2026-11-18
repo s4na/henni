@@ -1,6 +1,8 @@
-# Lint の実行
+# 動作確認
 
-actionlint、zizmor、RuboCop Lint は GitHub Actions 上でのみ実行する。結果は PR の `workflow-lint`（actionlint・zizmor）と `ruby-lint`（RuboCop Lint）で確認する。
+テスト、Lint、ビルド、CLI やサンプルアプリの試行など、変更に伴う動作確認はすべて GitHub Actions 上で実行する。ローカルでは実行しない。既存のジョブで確認できない場合は、必要な検証ステップをワークフローに追加し、PR の Checks で結果を確認する。
+
+Lint の結果は `workflow-lint`（actionlint・zizmor）と `ruby-lint`（RuboCop Lint）で確認する。
 
 # 公開する情報
 
