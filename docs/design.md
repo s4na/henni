@@ -2,7 +2,7 @@
 
 作成日: 2026-11-18（日本時間）  
 対象: https://github.com/s4na/henni  
-状態: Ruby＋RSpecの最初の実装は[README](../README.md)の手順で実行できます。以下は後続段階を含む設計です。
+状態: Ruby／RailsでRSpec・Minitestを実行する実装は[README](../README.md)の手順で実行できます。以下は後続段階を含む設計です。
 
 ## この設計で決めること
 

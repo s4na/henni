@@ -2,6 +2,7 @@ PATH
   remote: .
   specs:
     henni (0.1.0)
+      minitest (>= 5.25.4, < 7)
       prism (~> 2.1)
       rspec (~> 3.13)
 
@@ -289,6 +290,7 @@ PLATFORMS
 DEPENDENCIES
   capybara (~> 3.40)
   henni!
+  minitest (= 6.1.0)
   puma (>= 6)
   rails (~> 8.1.0)
   rspec-rails (~> 8.0)

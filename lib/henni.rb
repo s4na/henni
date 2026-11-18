@@ -2,6 +2,7 @@ require "json"
 require "optparse"
 require "pathname"
 require_relative "henni/planner"
+require_relative "henni/suites"
 require_relative "henni/executor"
 
 module Henni
@@ -33,8 +34,14 @@ module Henni
 
   def self.run(args)
     timeout = 60.0
+    runner = "auto"
+    spec_pattern = nil
+    test_pattern = nil
     options = OptionParser.new do |parser|
-      parser.banner = "Usage: henni run [--timeout SECONDS] RELATIVE_FILE.rb"
+      parser.banner = "Usage: henni run [options] RELATIVE_FILE.rb"
+      parser.on("--runner NAME", %w[auto both rspec minitest]) { |value| runner = value }
+      parser.on("--rspec-pattern GLOB") { |value| spec_pattern = value }
+      parser.on("--minitest-pattern GLOB") { |value| test_pattern = value }
       parser.on("--timeout SECONDS", Float) { |seconds| timeout = seconds }
     end
     if args == ["--help"] || args == ["run", "--help"]
@@ -58,13 +65,16 @@ module Henni
       planner = Planner.new(target, source)
       report[:mutations] = planner.plan.map { |mutation| mutation.merge(status: "pending") }
       unless report[:mutations].empty?
-        executor = Executor.new(base, target, timeout)
+        suites = Suites.discover(base, runner, spec_pattern, test_pattern)
+        raise ArgumentError, "no RSpec or Minitest suite found" if suites.empty?
+        report[:runners] = suites.keys
+        executor = Executor.new(base, target, timeout, suites)
         baseline = report[:baseline] = executor.run(source)
         if baseline[:status] == "passed"
           report[:mutations].each do |mutation|
             changed = planner.apply(mutation)
             execution = if Prism.parse(changed, filepath: target, version: "current").success?
-                          executor.run(changed, baseline_ids: baseline.fetch(:example_ids))
+                          executor.run(changed, baseline: baseline)
                         else
                           { status: "invalid", reason: "mutated source failed to parse" }
                         end

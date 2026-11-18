@@ -14,12 +14,21 @@ jobs:
     strategy:
       matrix:
         ruby: ['3.4', '4.0']
+        minitest: ['6.1.0']
+        include:
+          - ruby: '3.4'
+            minitest: '5.25.4'
+    env:
+      HENNI_TEST_MINITEST: ${{ matrix.minitest }}
     steps:
       - uses: actions/checkout@v4
       - uses: ruby/setup-ruby@v1
         with:
           ruby-version: ${{ matrix.ruby }}
-          bundler-cache: true
-      - name: Run gem specs and Rails request/browser E2E
+          bundler-cache: ${{ matrix.minitest != '5.25.4' }}
+      - name: Install the Minitest 5 compatibility bundle
+        if: matrix.minitest == '5.25.4'
+        run: bundle install
+      - name: Run gem specs and both complete Rails suites
         run: bundle exec rspec --format documentation
       - run: gem build henni.gemspec --strict
