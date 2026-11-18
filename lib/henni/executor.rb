@@ -41,15 +41,23 @@ module Henni
     def run_suite(name, pattern, source, previous)
       Dir.mktmpdir("henni-run") do |tmp|
         work = File.join(tmp, "project")
+        started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
         FileUtils.cp_r(@snapshot, work)
+        copy_seconds = Process.clock_gettime(Process::CLOCK_MONOTONIC) - started
         File.binwrite(File.join(work, @target), source)
         result_path = File.join(tmp, "result.json")
+        started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
         status = execute(name, pattern, work, result_path)
-        return { status: "timeout", reason: "#{name} exceeded #{@timeout}s" } unless status
-        return { status: "error", reason: "#{name} exited without results (#{status})" } unless File.file?(result_path)
-
-        result = JSON.parse(File.read(result_path), symbolize_names: true)
-        classify(name, result, status, Digest::SHA256.hexdigest(source), previous)
+        duration = { copy_seconds: copy_seconds, test_seconds: Process.clock_gettime(Process::CLOCK_MONOTONIC) - started }
+        outcome = if !status
+                    { status: "timeout", reason: "#{name} exceeded #{@timeout}s" }
+                  elsif !File.file?(result_path)
+                    { status: "error", reason: "#{name} exited without results (#{status})" }
+                  else
+                    result = JSON.parse(File.read(result_path), symbolize_names: true)
+                    classify(name, result, status, Digest::SHA256.hexdigest(source), previous)
+                  end
+        outcome.merge(duration: duration)
       end
     end
 
