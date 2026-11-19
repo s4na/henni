@@ -105,6 +105,44 @@ RSpec.describe "henni run" do
     expect(report.fetch("mutations").first).to include("status" => "error", "reason" => "RSpec did not run the expected examples")
   end
 
+  it "rejects a different RSpec declaration occupying the same scoped ID" do
+    [
+      # Same description and ID, different source line.
+      <<~RUBY,
+        if Discount.eligible?(1_000)
+          it("case") { expect(true).to be(true) }
+        else
+          it("case") { expect(true).to be(true) }
+        end
+      RUBY
+      # Same source line and ID, different declared description.
+      'it(Discount.eligible?(1_000) ? "eligible" : "other") { expect(true).to be(true) }'
+    ].each do |declarations|
+      File.write(spec_path, "require_relative '../lib/discount'\nRSpec.describe Discount do\n#{declarations}\nend\n")
+      code, report = run_cli
+      expect(code).to eq(2)
+      expect(report.dig("baseline", "status")).to eq("passed")
+      expect(report.dig("mutations", 0, "reason")).to eq("RSpec example definitions changed from baseline")
+    end
+  end
+
+  it "does not compare the runtime matcher descriptions of unnamed examples" do
+    File.write(spec_path, <<~RUBY)
+      require_relative "../lib/discount"
+      RSpec.describe Discount do
+        it do
+          if Discount.eligible?(1_000)
+            expect(1).to eq(1)
+          else
+            expect(2).to eq(2)
+          end
+        end
+      end
+    RUBY
+    code, report = run_cli
+    expect([code, report.fetch("counts")]).to eq([1, { "survived" => 1 }]), report.inspect
+  end
+
   it "reports a deadline independently of expectation failures" do
     File.open(spec_path, "a") { |file| file.puts "sleep 20" }
     code, report = run_cli("--timeout", "0.5")

@@ -51,6 +51,11 @@ if pattern
   abort "no RSpec files match #{pattern}" if files.empty?
   args.concat(files.map { |file| File.expand_path(file) })
 end
+# Capture the declaration before RSpec generates descriptions for unnamed examples
+# from the matcher that executed, which may legitimately change under mutation.
+RSpec.configuration.define_derived_metadata do |metadata|
+  metadata[:henni_declared_description] = metadata[:full_description].dup if metadata.key?(:execution_result)
+end
 exit_code = RSpec::Core::Runner.run(args, $stderr, $stderr)
 config = RSpec.configuration
 examples = config.reporter.examples.map do |example|
@@ -65,7 +70,11 @@ examples = config.reporter.examples.map do |example|
   end
   entry
 end
+definitions = config.reporter.examples.map do |example|
+  [example.id, example.location, example.metadata.fetch(:henni_declared_description)]
+end
 report.write(exit_code: exit_code, dry_run: config.dry_run,
              suite_error: !!(RSpec.world.non_example_failure || observer.failed_outside_example),
-             expected_ids: RSpec.world.all_examples.map(&:id), examples: examples)
+             expected_ids: RSpec.world.all_examples.map(&:id), examples: examples,
+             example_set_digest: Digest::SHA256.hexdigest(JSON.generate(definitions.sort)))
 exit exit_code
