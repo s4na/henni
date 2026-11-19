@@ -115,7 +115,15 @@ module Henni
         if @operators.include?("integer")
           [node.value + 1, node.value - 1].each do |value|
             # Keep a negative replacement together as an operand of exponentiation.
-            yield "integer", node.location, value.negative? ? "(#{value})" : value.to_s
+            literal = if value.negative?
+                        "(#{value})"
+                      elsif node.location.slice.start_with?("-", "+")
+                        # The original sign can separate a keyword from its argument (return-1).
+                        " #{value}"
+                      else
+                        value.to_s
+                      end
+            yield "integer", node.location, literal
           end
         end
       when Prism::AndNode, Prism::OrNode
