@@ -90,17 +90,23 @@ module Henni
       [timeout, duration]
     end
 
+    def project_relative_path(path)
+      expanded = File.expand_path(path)
+      absolute = File.join(File.realpath(File.dirname(expanded)), File.basename(expanded))
+      prefix = File.realpath(Dir.pwd) + "/"
+      absolute.delete_prefix(prefix) if absolute.start_with?(prefix)
+    end
+
     def execute(name, pattern, work, result_path, timeout)
       env = {}
       env["PARALLEL_WORKERS"] = "1" if name == "minitest"
       gemfile = ENV["BUNDLE_GEMFILE"]
-      if gemfile && File.identical?(File.dirname(File.expand_path(gemfile)), Dir.pwd)
-        env["BUNDLE_GEMFILE"] = File.join(work, File.basename(gemfile))
+      if gemfile && (relative = project_relative_path(gemfile))
+        env["BUNDLE_GEMFILE"] = File.join(work, relative)
         if ENV["BUNDLE_LOCKFILE"]
-          lockfile = File.realdirpath(ENV.fetch("BUNDLE_LOCKFILE"))
-          prefix = File.realpath(Dir.pwd) + "/"
-          raise ArgumentError, "bundle lockfile must be inside the project" unless lockfile.start_with?(prefix)
-          env["BUNDLE_LOCKFILE"] = File.join(work, lockfile.delete_prefix(prefix))
+          lockfile = project_relative_path(ENV.fetch("BUNDLE_LOCKFILE"))
+          raise ArgumentError, "bundle lockfile must be inside the project" unless lockfile
+          env["BUNDLE_LOCKFILE"] = File.join(work, lockfile)
         end
         %i[with without only].each do |setting|
           groups = Array(Bundler.settings[setting])
