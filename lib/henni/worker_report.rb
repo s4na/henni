@@ -29,15 +29,13 @@ module Henni
     def line_hits
       return unless Coverage.state == :running
 
-      tables = Coverage.peek_result.filter_map do |file, measurement|
-        next unless File.absolute_path?(file) && File.identical?(file, @target)
-        return unless measurement.is_a?(Hash) && measurement[:lines]
-
-        measurement[:lines]
+      matches = Coverage.peek_result.select do |file, _measurement|
+        File.absolute_path?(file) && File.identical?(file, @target)
       end
-      return unless tables.one?
+      return unless matches.size == 1
 
-      tables.first
+      measurement = matches.values.first
+      measurement[:lines] if measurement.is_a?(Hash)
     end
   end
 end
