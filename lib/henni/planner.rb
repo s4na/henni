@@ -5,7 +5,11 @@ module Henni
   class Planner
     REPLACEMENTS = { ">=" => ">", ">" => ">=", "<=" => "<", "<" => "<=", "==" => "!=", "!=" => "==" }.freeze
 
-    def initialize(path, source)
+    OPERATORS = %w[comparison boolean condition integer logical].freeze
+    LOGICAL = { "&&" => "||", "||" => "&&", "and" => "or", "or" => "and" }.freeze
+
+    def initialize(path, source, operators: ["comparison"])
+      @operators = operators
       @path = path
       @source = source
     end
@@ -21,7 +25,7 @@ module Henni
 
     def apply(mutation)
       changed = @source.dup
-      changed.bytesplice(mutation[:offset], mutation[:before].bytesize, mutation[:after])
+      changed.bytesplice(mutation[:offset], mutation.fetch(:length), mutation[:after])
       changed
     end
 
@@ -86,21 +90,65 @@ module Henni
       name.start_with?("::") ? name.delete_prefix("::") : [owner, name].compact.join("::")
     end
 
-    def visit_body(node, method_name, scope, definition, route, mutations)
+    def replacements(node, parent)
+      case node
+      when Prism::CallNode
+        token = node.message_loc
+        if @operators.include?("comparison") && !node.call_operator_loc && (after = REPLACEMENTS[token&.slice])
+          yield "comparison", token, after
+        end
+      when Prism::TrueNode, Prism::FalseNode
+        yield "boolean", node.location, node.is_a?(Prism::TrueNode) ? "false" : "true" if @operators.include?("boolean")
+      when Prism::IfNode, Prism::UnlessNode
+        return unless @operators.include?("condition")
+        predicate = node.predicate
+        # Literal predicates belong to the boolean family in every selection.
+        return if predicate.is_a?(Prism::TrueNode) || predicate.is_a?(Prism::FalseNode)
+        # Removing an opener while leaving its heredoc body can expose unrelated Ruby.
+        return if predicate.breadth_first_search { |child| child.respond_to?(:heredoc?) && child.heredoc? }
+
+        breaks = predicate.slice.scan(/\r?\n/).join
+        %w[true false].each do |value|
+          yield "condition", predicate.location, "(#{value}#{breaks})"
+        end
+      when Prism::IntegerNode
+        if @operators.include?("integer")
+          power_base = parent.is_a?(Prism::CallNode) && parent.name == :** && parent.receiver.equal?(node)
+          [node.value + 1, node.value - 1].each do |value|
+            literal = if value.negative? && power_base
+                        # Group the base without introducing a command-call argument list.
+                        " begin #{value} end"
+                      elsif !value.negative? && node.location.slice.start_with?("-", "+")
+                        # The original sign can separate a keyword from its argument (return-1).
+                        " #{value}"
+                      else
+                        value.to_s
+                      end
+            yield "integer", node.location, literal
+          end
+        end
+      when Prism::AndNode, Prism::OrNode
+        yield "logical", node.operator_loc, LOGICAL.fetch(node.operator_loc.slice) if @operators.include?("logical")
+      end
+    end
+
+    def visit_body(node, method_name, scope, definition, route, mutations, parent = nil)
       return if node.is_a?(Prism::DefNode) || node.is_a?(Prism::SingletonClassNode)
 
-      if node.is_a?(Prism::CallNode) && !node.call_operator_loc
-        token = node.message_loc
-        before = token&.slice
-        if (after = REPLACEMENTS[before])
-          id = Digest::SHA256.hexdigest([@path, scope, definition, route.join("."), before, after].join("\0"))
-          mutations << { id: id, path: @path, method: method_name, scope: scope, line: token.start_line,
-                         single_line: node.location.start_line == node.location.end_line,
-                         offset: token.start_offset, before: before, after: after }
-        end
+      replacements(node, parent) do |operator, token, after|
+        before = token.slice.encode("UTF-8")
+        next if after == before
+
+        key = [@path, scope, definition, route.join("."), before, after]
+        # Comparison tokens already identify their operator family in existing IDs.
+        key << operator unless operator == "comparison"
+        mutations << { id: Digest::SHA256.hexdigest(key.join("\0")), operator: operator, path: @path,
+                       method: method_name, scope: scope, line: token.start_line, offset: token.start_offset,
+                       single_line: node.location.start_line == node.location.end_line,
+                       length: token.length, before: before, after: after }
       end
       node.child_nodes.each_with_index do |child, i|
-        visit_body(child, method_name, scope, definition, route + [i], mutations) if child
+        visit_body(child, method_name, scope, definition, route + [i], mutations, node) if child
       end
     end
   end

@@ -61,6 +61,67 @@ RSpec.describe Henni::Planner do
     expect(indexed.call(modules.join)).to eq(indexed.call(modules.reverse.join))
   end
 
+  it "generates unique byte edits for the selected operator families" do
+    source = "def 試す(x, y)\n  if x &&\n     y\n    true\n  else\n    0x10\n  end\nend\n"
+    planner = described_class.new("lib/example.rb", source, operators: Henni::Planner::OPERATORS)
+    sites = planner.plan
+    expect(sites.map { |site| site[:operator] }.tally).to eq("condition" => 2, "logical" => 1, "boolean" => 1, "integer" => 2)
+    expect(sites.select { |site| site[:operator] == "integer" }.map { |site| site[:after] }).to contain_exactly("15", "17")
+    expect(sites.map { |site| site[:id] }.uniq.size).to eq(sites.size)
+    sites.each do |site|
+      changed = planner.apply(site)
+      expect(changed.count("\n")).to eq(source.count("\n"))
+      expect(Prism.parse(changed).success?).to be(true)
+    end
+  end
+
+  it "preserves the token boundary in if(x) and unless(x)" do
+    { "if" => [1, 2], "unless" => [2, 1] }.each do |keyword, expected|
+      source = "def pick(x); #{keyword}(x); 1; else; 2; end; end"
+      planner = described_class.new("x.rb", source, operators: ["condition"])
+      results = planner.plan.map do |site|
+        klass = Class.new
+        klass.class_eval(planner.apply(site))
+        klass.new.pick(nil)
+      end
+      expect(results).to eq(expected)
+    end
+  end
+
+  it "keeps a keyword separate from a signed integer mutated to zero" do
+    %w[return-1 return+1].each do |expression|
+      planner = described_class.new("x.rb", "def value; #{expression}; end", operators: ["integer"])
+      site = planner.plan.find { |mutation| mutation[:after].strip == "0" }
+      klass = Class.new
+      klass.class_eval(planner.apply(site))
+      expect(klass.new.value).to eq(0)
+    end
+  end
+
+  it "keeps a negative integer valid in a multi-argument command call" do
+    { "0" => [-1, 2], "0**2" => [1, 2] }.each do |argument, expected|
+      source = "def pair(a,b) = [a,b]\ndef value; pair #{argument}, 2; end"
+      planner = described_class.new("x.rb", source, operators: ["integer"])
+      site = planner.plan.find { |mutation| mutation[:before] == "0" && mutation[:after].include?("-1") }
+      klass = Class.new
+      klass.class_eval(planner.apply(site))
+      expect(klass.new.value).to eq(expected)
+    end
+  end
+
+  it "keeps a negative integer mutation as the base of a power" do
+    planner = described_class.new("x.rb", "def square = 0**2", operators: ["integer"])
+    mutation = planner.plan.find { |site| site[:before] == "0" && site[:after].include?("-1") }
+    klass = Class.new
+    klass.class_eval(planner.apply(mutation))
+    expect(klass.new.square).to eq(1)
+  end
+
+  it "avoids duplicate edits to a literal predicate and handles word operators" do
+    planner = described_class.new("x.rb", "def f(a,b) = (a and b unless false)", operators: Henni::Planner::OPERATORS)
+    expect(planner.plan.map { |site| site.values_at(:before, :after) }).to contain_exactly(["and", "or"], ["false", "true"])
+  end
+
   it "keeps distinct mutation sites within a single method" do
     mutations = plan("def valid(value) = value >= 1 && value <= 10")
     expect(mutations.map { |mutation| mutation.fetch(:id) }.uniq.size).to eq(2)

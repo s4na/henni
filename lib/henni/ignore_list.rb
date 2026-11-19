@@ -4,7 +4,7 @@ module Henni
   class IgnoreList
     FILENAME = ".henni-ignore.json"
 
-    def self.load(root, target)
+    def self.load(root, target, operators)
       path = File.join(root, FILENAME)
       return new([]) unless File.exist?(path)
 
@@ -14,8 +14,11 @@ module Henni
         unless entry.is_a?(Hash) && %i[path id scope_fingerprint reason].all? { |key| entry[key].is_a?(String) && !entry[key].strip.empty? }
           raise ArgumentError, "#{FILENAME} entries require path, id, scope_fingerprint and reason"
         end
+        if entry.key?(:operator) && !Planner::OPERATORS.include?(entry[:operator])
+          raise ArgumentError, "#{FILENAME} contains an unknown operator"
+        end
       end
-      new(entries.select { |entry| entry[:path] == target })
+      new(entries.select { |entry| entry[:path] == target && operators.include?(entry.fetch(:operator, "comparison")) })
     end
 
     def initialize(entries)
@@ -27,7 +30,8 @@ module Henni
       stale = @entries.dup
       mutations.each do |mutation|
         entry = @entries[mutation[:id]]
-        next unless entry && entry[:scope_fingerprint] == mutation[:scope_fingerprint]
+        next unless entry && entry.fetch(:operator, "comparison") == mutation[:operator] &&
+                    entry[:scope_fingerprint] == mutation[:scope_fingerprint]
 
         mutation.merge!(status: "ignored", reason: entry[:reason])
         stale.delete(mutation[:id])

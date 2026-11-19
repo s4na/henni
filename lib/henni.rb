@@ -21,6 +21,7 @@ module Henni
     single_process_coverage = false
     fail_on_empty = false
     runner = "auto"
+    operators = ["comparison"]
     spec_pattern = nil
     test_pattern = nil
     excludes = []
@@ -29,6 +30,12 @@ module Henni
       parser.on("--fail-on-empty", "Exit 1 if there are no mutations") { fail_on_empty = true }
       parser.on("--runner NAME", %w[auto both rspec minitest]) { |value| runner = value }
       parser.on("--single-process-coverage", "Measure baseline lines in single-process suites") { single_process_coverage = true }
+      parser.on("--operators LIST", Array, "comparison,boolean,condition,integer,logical or all") do |names|
+        operators = names == ["all"] ? Planner::OPERATORS : names
+        unless operators.any? && (operators - Planner::OPERATORS).empty?
+          raise ArgumentError, "expected one or more of #{Planner::OPERATORS.join(", ")} or all"
+        end
+      end
       parser.on("--rspec-pattern GLOB") { |value| spec_pattern = value }
       parser.on("--minitest-pattern GLOB") { |value| test_pattern = value }
       parser.on("--exclude GLOB", "Exclude a project-relative path (repeatable)") { |glob| excludes << glob }
@@ -57,9 +64,10 @@ module Henni
       input.copy(Dir.pwd, base)
       report[:duration] = { snapshot_seconds: Process.clock_gettime(Process::CLOCK_MONOTONIC) - started }
       source = File.binread(File.join(base, target))
-      planner = Planner.new(target, source)
+      planner = Planner.new(target, source, operators: operators)
       report[:mutations] = planner.plan.map { |mutation| mutation.merge(status: "pending") }
-      report[:stale_ignores] = IgnoreList.load(base, target).apply(report[:mutations])
+      report[:operator_counts] = report[:mutations].map { |mutation| mutation[:operator] }.tally
+      report[:stale_ignores] = IgnoreList.load(base, target, operators).apply(report[:mutations])
       report[:no_mutations] = report[:mutations].empty?
       unless report[:no_mutations]
         suites = Suites.discover(base, runner, spec_pattern, test_pattern)
@@ -81,7 +89,8 @@ module Henni
                           { status: "invalid", reason: "mutated source failed to parse" }
                         end
             mutation.merge!(execution)
-            if mutation[:status] == "survived" && mutation[:baseline_line_status] == "missed" && mutation[:single_line]
+            if mutation[:status] == "survived" && mutation[:baseline_line_status] == "missed" &&
+               mutation[:operator] == "comparison" && mutation[:single_line]
               mutation[:status] = "uncovered"
             end
           end

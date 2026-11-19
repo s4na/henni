@@ -44,11 +44,13 @@ RSpec.describe "henni run" do
 
   it "distinguishes missed and reached comparisons in a single-process suite" do
     File.open(File.join(@project, target), "a") do |file|
-      file.puts "def never_called(x)\n  x == :unused\nend"
+      file.puts "def never_called(x)\n  x == :unused\nend\ndef unused_flag\n  true\nend"
     end
-    code, report = run_cli("--single-process-coverage")
-    expect([code, report["complete"], report["counts"]]).to eq([1, true, { "survived" => 1, "uncovered" => 1 }])
-    expect(report.fetch("mutations").map { |site| site.fetch("baseline_line_status") }).to eq(%w[reached missed])
+    code, report = run_cli("--single-process-coverage", "--operators", "comparison,boolean")
+    expect([code, report["complete"], report["counts"]]).to eq([1, true, { "survived" => 2, "uncovered" => 1 }])
+    expect(report.fetch("mutations").map { |site| site.values_at("operator", "baseline_line_status", "status") }).to eq([
+      %w[comparison reached survived], %w[comparison missed uncovered], %w[boolean missed survived]
+    ])
   end
 
   it "keeps survival when baseline coverage is unavailable" do
@@ -62,6 +64,12 @@ RSpec.describe "henni run" do
     expect(report.fetch("mutations").first.fetch("baseline_line_status")).to eq("unknown")
   end
 
+  it "reports and runs only the requested operator family" do
+    File.write(File.join(@project, target), "module Discount; def self.eligible?(_price) = true; end\n")
+    code, report = run_cli("--operators", "boolean")
+    expect([code, report["operator_counts"], report["counts"]]).to eq([0, { "boolean" => 1 }, { "killed" => 1 }])
+  end
+
   it "applies a reasoned ignore only to the reviewed method revision" do
     path = File.join(@project, target)
     source = File.read(path)
@@ -72,6 +80,9 @@ RSpec.describe "henni run" do
     expect(report).to include("no_mutations" => false, "baseline" => include("status" => "passed"))
     expect([code, report["counts"], report["stale_ignores"]]).to eq([0, { "ignored" => 1 }, []])
     expect(report.fetch("mutations").first).to include("reason" => entry[:reason])
+
+    code, report = run_cli("--operators", "boolean")
+    expect([code, report["no_mutations"], report["stale_ignores"]]).to eq([0, true, []])
 
     File.write(path, source.sub("1_000", "1000"))
     code, report = run_cli
