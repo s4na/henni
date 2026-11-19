@@ -42,6 +42,12 @@ RSpec.describe "henni run" do
     expect(File.binread(path)).to eq(original)
   end
 
+  it "reports and runs only the requested operator family" do
+    File.write(File.join(@project, target), "module Discount; def self.eligible?(_price) = true; end\n")
+    code, report = run_cli("--operators", "boolean")
+    expect([code, report["operator_counts"], report["counts"]]).to eq([0, { "boolean" => 1 }, { "killed" => 1 }])
+  end
+
   it "applies a reasoned ignore only to the reviewed method revision" do
     path = File.join(@project, target)
     source = File.read(path)
@@ -52,6 +58,9 @@ RSpec.describe "henni run" do
     expect(report).to include("no_mutations" => false, "baseline" => include("status" => "passed"))
     expect([code, report["counts"], report["stale_ignores"]]).to eq([0, { "ignored" => 1 }, []])
     expect(report.fetch("mutations").first).to include("reason" => entry[:reason])
+
+    code, report = run_cli("--operators", "boolean")
+    expect([code, report["no_mutations"], report["stale_ignores"]]).to eq([0, true, []])
 
     File.write(path, source.sub("1_000", "1000"))
     code, report = run_cli
