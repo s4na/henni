@@ -75,6 +75,14 @@ RSpec.describe Henni::Planner do
     end
   end
 
+  it "keeps a negative integer mutation as the base of a power" do
+    planner = described_class.new("x.rb", "def square = 0**2", operators: ["integer"])
+    mutation = planner.plan.find { |site| site[:before] == "0" && site[:after].include?("-1") }
+    klass = Class.new
+    klass.class_eval(planner.apply(mutation))
+    expect(klass.new.square).to eq(1)
+  end
+
   it "avoids duplicate edits to a literal predicate and handles word operators" do
     planner = described_class.new("x.rb", "def f(a,b) = (a and b unless false)", operators: Henni::Planner::OPERATORS)
     expect(planner.plan.map { |site| site.values_at(:before, :after) }).to contain_exactly(["and", "or"], ["false", "true"])

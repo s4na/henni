@@ -92,7 +92,10 @@ module Henni
         end
       when Prism::IntegerNode
         if @operators.include?("integer")
-          [node.value + 1, node.value - 1].each { |value| yield "integer", node.location, value.to_s }
+          [node.value + 1, node.value - 1].each do |value|
+            # Keep a negative replacement together as an operand of exponentiation.
+            yield "integer", node.location, value.negative? ? "(#{value})" : value.to_s
+          end
         end
       when Prism::AndNode, Prism::OrNode
         yield "logical", node.operator_loc, LOGICAL.fetch(node.operator_loc.slice) if @operators.include?("logical")
