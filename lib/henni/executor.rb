@@ -5,6 +5,9 @@ require "tmpdir"
 
 module Henni
   class Executor
+    MIN_MUTATION_TIMEOUT = 1.0
+    BASELINE_TIMEOUT_FACTOR = 5.0
+
     def initialize(snapshot, target, timeout, suites)
       @snapshot = snapshot
       @target = target
@@ -44,16 +47,34 @@ module Henni
         FileUtils.cp_r(@snapshot, work)
         File.binwrite(File.join(work, @target), source)
         result_path = File.join(tmp, "result.json")
-        status = execute(name, pattern, work, result_path)
-        return { status: "timeout", reason: "#{name} exceeded #{@timeout}s" } unless status
-        return { status: "error", reason: "#{name} exited without results (#{status})" } unless File.file?(result_path)
+        timeout, baseline_duration = timeout_for(previous)
+        started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+        status = execute(name, pattern, work, result_path, timeout)
+        timing = { duration_seconds: Process.clock_gettime(Process::CLOCK_MONOTONIC) - started,
+                   timeout_seconds: timeout, timeout_source: baseline_duration ? "baseline" : "configured" }
+        timing[:baseline_duration_seconds] = baseline_duration if baseline_duration
+        unless status
+          phase = previous ? "mutation after a passing baseline" : "baseline"
+          return timing.merge(status: "timeout", reason: "#{name} #{phase} exceeded #{timeout}s")
+        end
+        unless File.file?(result_path)
+          return timing.merge(status: "error", reason: "#{name} exited without results (#{status})")
+        end
 
         result = JSON.parse(File.read(result_path), symbolize_names: true)
-        classify(name, result, status, Digest::SHA256.hexdigest(source), previous)
+        classify(name, result, status, Digest::SHA256.hexdigest(source), previous).merge(timing)
       end
     end
 
-    def execute(name, pattern, work, result_path)
+    def timeout_for(previous)
+      duration = previous && previous[:duration_seconds]
+      return [@timeout, nil] unless previous && previous[:status] == "passed" && duration.is_a?(Numeric) && duration.finite? && duration.positive?
+
+      timeout = [@timeout, [MIN_MUTATION_TIMEOUT, duration * BASELINE_TIMEOUT_FACTOR].max].min
+      [timeout, duration]
+    end
+
+    def execute(name, pattern, work, result_path, timeout)
       env = {}
       env["PARALLEL_WORKERS"] = "1" if name == "minitest"
       gemfile = ENV["BUNDLE_GEMFILE"]
@@ -75,7 +96,7 @@ module Henni
       worker = File.expand_path("#{name}_worker.rb", __dir__)
       pid = Process.spawn(env, RbConfig.ruby, "-Ilib", worker, @target, result_path, *Array(pattern),
                           chdir: work, pgroup: true, out: :err)
-      deadline = Process.clock_gettime(Process::CLOCK_MONOTONIC) + @timeout
+      deadline = Process.clock_gettime(Process::CLOCK_MONOTONIC) + timeout
       loop do
         finished = Process.waitpid2(pid, Process::WNOHANG)
         return finished.last if finished
