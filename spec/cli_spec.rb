@@ -130,11 +130,17 @@ RSpec.describe "henni run" do
     File.write(spec_path, <<~RUBY)
       require_relative "../lib/discount"
       RSpec.describe Discount do
-        it { Discount.eligible?(1_000) ? expect(1).to eq(1) : expect(2).to eq(2) }
+        it do
+          if Discount.eligible?(1_000)
+            expect(1).to eq(1)
+          else
+            expect(2).to eq(2)
+          end
+        end
       end
     RUBY
     code, report = run_cli
-    expect([code, report.fetch("counts")]).to eq([1, { "survived" => 1 }])
+    expect([code, report.fetch("counts")]).to eq([1, { "survived" => 1 }]), report.inspect
   end
 
   it "reports a deadline independently of expectation failures" do
