@@ -109,7 +109,7 @@ module Henni
 
         breaks = predicate.slice.scan(/\r?\n/).join
         %w[true false].each do |value|
-          yield "condition", predicate.location, breaks.empty? ? value : "(#{value}#{breaks})"
+          yield "condition", predicate.location, "(#{value}#{breaks})"
         end
       when Prism::IntegerNode
         if @operators.include?("integer")

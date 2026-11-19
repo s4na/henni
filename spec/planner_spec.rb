@@ -75,6 +75,19 @@ RSpec.describe Henni::Planner do
     end
   end
 
+  it "preserves the token boundary in if(x) and unless(x)" do
+    { "if" => [1, 2], "unless" => [2, 1] }.each do |keyword, expected|
+      source = "def pick(x); #{keyword}(x); 1; else; 2; end; end"
+      planner = described_class.new("x.rb", source, operators: ["condition"])
+      results = planner.plan.map do |site|
+        klass = Class.new
+        klass.class_eval(planner.apply(site))
+        klass.new.pick(nil)
+      end
+      expect(results).to eq(expected)
+    end
+  end
+
   it "keeps a negative integer mutation as the base of a power" do
     planner = described_class.new("x.rb", "def square = 0**2", operators: ["integer"])
     mutation = planner.plan.find { |site| site[:before] == "0" && site[:after].include?("-1") }
