@@ -30,6 +30,7 @@ RSpec.describe "henni run" do
     original = File.binread(path)
     code, weak = run_cli
     expect(code).to eq(1)
+    expect(weak.fetch("no_mutations")).to be(false)
     expect(weak.fetch("counts")).to eq("survived" => 1)
     File.open(spec_path, "a") do |file|
       file.puts 'RSpec.describe(Discount) { it("includes the threshold") { expect(Discount.eligible?(1_000)).to be(true) } }'
@@ -39,6 +40,16 @@ RSpec.describe "henni run" do
     expect(strong.fetch("counts")).to eq("killed" => 1)
     expect(strong["mutations"].first["id"]).to eq(weak["mutations"].first["id"])
     expect(File.binread(path)).to eq(original)
+  end
+
+  it "distinguishes an empty plan and optionally fails the quality gate" do
+    File.write(File.join(@project, target), "def unchanged(x) = x\n")
+    [[], ["--fail-on-empty"]].each do |options|
+      code, report = run_cli(*options)
+      expect(code).to eq(options.empty? ? 0 : 1)
+      expect(report).to include("complete" => true, "no_mutations" => true, "counts" => {})
+      expect(report).not_to have_key("baseline")
+    end
   end
 
   it "keeps internal links in the worker and skips Unix sockets" do
