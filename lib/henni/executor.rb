@@ -7,6 +7,7 @@ module Henni
   class Executor
     MIN_MUTATION_TIMEOUT = 1.0
     BASELINE_TIMEOUT_FACTOR = 5.0
+    RUNTIME_FAILURES = %w[NoMethodError TypeError ArgumentError NameError IndexError KeyError RangeError ZeroDivisionError FrozenError].freeze
 
     def initialize(snapshot, target, timeout, suites)
       @snapshot = snapshot
@@ -34,6 +35,9 @@ module Henni
                 else
                   { status: "survived" }
                 end
+      if verdict[:status] == "killed"
+        verdict[:killed_by] = results.any? { |result| result[:killed_by] == "exception" } ? "exception" : "assertion"
+      end
       verdict.merge(suites: suites, loaded: loaded, digest: results.first[:digest],
                     example_ids: results.flat_map { |result| result.fetch(:example_ids, []) },
                     failures: results.flat_map { |result| result.fetch(:failures, []) })
@@ -62,7 +66,19 @@ module Henni
         end
 
         result = JSON.parse(File.read(result_path), symbolize_names: true)
-        classify(name, result, status, Digest::SHA256.hexdigest(source), previous).merge(timing)
+        classified = classify(name, result, status, Digest::SHA256.hexdigest(source), previous).merge(timing)
+        if classified[:status] == "killed" && classified[:killed_by] == "exception"
+          original = File.binread(File.join(@snapshot, @target))
+          confirmation = run_suite(name, pattern, original, nil)
+          classified[:baseline_recheck] = confirmation
+          unless confirmation[:status] == "passed" && confirmation[:digest] == previous[:digest] &&
+                 confirmation[:loaded] == previous[:loaded] && confirmation[:example_ids] == previous[:example_ids]
+            classified[:status] = "error"
+            classified[:reason] = "original suite did not reproduce the passing baseline"
+            classified.delete(:killed_by)
+          end
+        end
+        classified
       end
     end
 
@@ -138,7 +154,11 @@ module Henni
       examples = result.fetch(:examples)
       ids = examples.map { |example| example.fetch(:id) }.sort
       failures = examples.select { |example| example[:status] == "failed" }
-      detected = previous && result[:loaded] && !status.success? && failures.all? { |example| example[:assertion] }
+      detected = previous && previous[:status] == "passed" && result[:loaded] && !status.success? &&
+                 failures.all? do |example|
+                   causes = example.fetch(:causes, [example])
+                   !causes.empty? && causes.all? { |cause| cause[:assertion] || RUNTIME_FAILURES.include?(cause[:exception]) }
+                 end
       reason = if !status.exited? || status.exitstatus != result[:exit_code] || result[:suite_error]
                  "#{label} process or suite error"
                elsif digest != result[:digest] || (previous && previous[:loaded] != result[:loaded])
@@ -157,8 +177,17 @@ module Henni
                 elsif failures.empty? then "survived"
                 else "killed"
                 end
-      { status: verdict, reason: reason, digest: result[:digest], loaded: result[:loaded], example_ids: ids,
-        failures: failures.map { |example| example.slice(:id, :exception) } }.compact
+      killed_by = if verdict == "killed"
+                    failures.all? { |example| example[:assertion] } ? "assertion" : "exception"
+                  end
+      failure_details = failures.map do |example|
+        detail = example.slice(:id, :exception)
+        causes = example[:causes]
+        detail[:causes] = causes if causes && causes.size > 1
+        detail
+      end
+      { status: verdict, killed_by: killed_by, reason: reason, digest: result[:digest], loaded: result[:loaded], example_ids: ids,
+        failures: failure_details }.compact
     end
   end
 end
