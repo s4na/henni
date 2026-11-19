@@ -47,6 +47,23 @@ bundle exec ruby -e 's = Gem.loaded_specs.fetch("henni"); puts s.version, s.meta
 
 レポートの `scope` は `Store::Sale#eligible?` のような修飾名です。`method` には従来どおりメソッド名だけが入ります。変異 ID はメソッド本体からの構造位置を使うので、無関係なメソッドの追加や並べ替えでは変わりません。同じメソッド名の再定義はソース内の出現順で区別します。従来方式で生成した ID とは一致しません。
 
+## 等価変異を除外する
+
+テストで区別できない理由を確認した変異は、プロジェクト直下の `.henni-ignore.json` に登録できます。JSONレポートの `path`、`id`、`scope_fingerprint` をコピーし、判断の理由を `reason` に書きます。
+
+```json
+[
+  {
+    "path": "lib/discount.rb",
+    "id": "<レポートのid>",
+    "scope_fingerprint": "<レポートのscope_fingerprint>",
+    "reason": "入力仕様により境界値を受け付けない"
+  }
+]
+```
+
+一致した変異は実行を省き、`counts.ignored` に集計します。全件が除外されていても元のスイートの成功を確認します。メソッドの内容が変わった登録や、対象ファイルから消えた変異の登録は `stale_ignores` に載ります。現存する変異は通常どおり実行されるので、理由が今も当てはまるか確認してから登録を更新してください。
+
 ## 実行するテスト
 
 既定の `--runner auto` は `spec/` または `.rspec` のあるプロジェクトでRSpecを起動し、`test/` 以下に `*_test.rb` または `test_*.rb` があればMinitestも起動します。`test_helper.rb` は通常のヘルパーとしてテストから読み込みます。RSpecは自身の設定でファイルを発見します。Minitestはサブディレクトリを再帰的に探索し、`Minitest::Test` とspec DSLの両方を実行します。Railsのsystem testも対象です。

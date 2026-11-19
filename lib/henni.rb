@@ -4,6 +4,7 @@ require "json"
 require "optparse"
 require "pathname"
 require_relative "henni/planner"
+require_relative "henni/ignore_list"
 require_relative "henni/suites"
 require_relative "henni/executor"
 
@@ -78,6 +79,7 @@ module Henni
       source = File.binread(File.join(base, target))
       planner = Planner.new(target, source)
       report[:mutations] = planner.plan.map { |mutation| mutation.merge(status: "pending") }
+      report[:stale_ignores] = IgnoreList.load(base, target).apply(report[:mutations])
       unless report[:mutations].empty?
         suites = Suites.discover(base, runner, spec_pattern, test_pattern)
         raise ArgumentError, "no RSpec or Minitest suite found" if suites.empty?
@@ -86,6 +88,8 @@ module Henni
         baseline = report[:baseline] = executor.run(source)
         if baseline[:status] == "passed"
           report[:mutations].each do |mutation|
+            next if mutation[:status] == "ignored"
+
             changed = planner.apply(mutation)
             execution = if Prism.parse(changed, filepath: target, version: "current").success?
                           executor.run(changed, baseline: baseline)
@@ -99,7 +103,8 @@ module Henni
     end
     counts = report[:mutations].map { |mutation| mutation[:status] }.tally
     report[:counts] = counts
-    report[:complete] = (counts.keys - %w[killed survived invalid]).empty?
+    report[:complete] = (counts.keys - %w[killed survived invalid ignored]).empty? &&
+                        (!report[:baseline] || report[:baseline][:status] == "passed")
     puts JSON.pretty_generate(report)
     return 2 unless report[:complete]
     counts.key?("survived") ? 1 : 0

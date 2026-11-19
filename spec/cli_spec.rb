@@ -41,6 +41,22 @@ RSpec.describe "henni run" do
     expect(File.binread(path)).to eq(original)
   end
 
+  it "applies a reasoned ignore only to the reviewed method revision" do
+    path = File.join(@project, target)
+    source = File.read(path)
+    mutation = Henni::Planner.new(target, source).plan.first
+    entry = mutation.slice(:path, :id, :scope_fingerprint).merge(reason: "boundary excluded by the caller")
+    File.write(File.join(@project, ".henni-ignore.json"), JSON.generate([entry]))
+    code, report = run_cli
+    expect([code, report["counts"], report["stale_ignores"]]).to eq([0, { "ignored" => 1 }, []])
+    expect(report.fetch("mutations").first).to include("reason" => entry[:reason])
+
+    File.write(path, source.sub("1_000", "1000"))
+    code, report = run_cli
+    expect([code, report["counts"]]).to eq([1, { "survived" => 1 }])
+    expect(report.fetch("stale_ignores").first).to include("id" => entry[:id])
+  end
+
   it "keeps internal links in the worker and skips Unix sockets" do
     source = File.join(@project, target)
     original = File.binread(source)
