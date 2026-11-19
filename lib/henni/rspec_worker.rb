@@ -25,6 +25,21 @@ def aggregated_failure_leaves(failure)
   end
 end
 
+# RSpec reports a before(:context) failure once for each unrun example.
+# Only failures reported inside Example#run have that example as current.
+class Henni::RSpecFailureObserver
+  attr_reader :failed_outside_example
+
+  def example_failed(notification)
+    @failed_outside_example = true unless RSpec.current_example.equal?(notification.example)
+  end
+end
+
+observer = Henni::RSpecFailureObserver.new
+RSpec.configure do |config|
+  config.before(:suite) { config.reporter.register_listener(observer, :example_failed) }
+end
+
 target, output, pattern = ARGV.shift(3)
 report = Henni::WorkerReport.new(target, output)
 args = ["--seed", "12345", "--no-fail-fast"]
@@ -35,6 +50,11 @@ if pattern
   files = Henni::Suites.files(pattern)
   abort "no RSpec files match #{pattern}" if files.empty?
   args.concat(files.map { |file| File.expand_path(file) })
+end
+# Capture the declaration before RSpec generates descriptions for unnamed examples
+# from the matcher that executed, which may legitimately change under mutation.
+RSpec.configuration.define_derived_metadata do |metadata|
+  metadata[:henni_declared_description] = metadata[:full_description].dup if metadata.key?(:execution_result)
 end
 exit_code = RSpec::Core::Runner.run(args, $stderr, $stderr)
 config = RSpec.configuration
@@ -50,6 +70,11 @@ examples = config.reporter.examples.map do |example|
   end
   entry
 end
-report.write(exit_code: exit_code, dry_run: config.dry_run, suite_error: !!RSpec.world.non_example_failure,
-             expected_ids: RSpec.world.all_examples.map(&:id), examples: examples)
+definitions = config.reporter.examples.map do |example|
+  [example.id, example.location, example.metadata.fetch(:henni_declared_description)]
+end
+report.write(exit_code: exit_code, dry_run: config.dry_run,
+             suite_error: !!(RSpec.world.non_example_failure || observer.failed_outside_example),
+             expected_ids: RSpec.world.all_examples.map(&:id), examples: examples,
+             example_set_digest: Digest::SHA256.hexdigest(JSON.generate(definitions.sort)))
 exit exit_code

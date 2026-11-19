@@ -41,9 +41,9 @@ bundle exec ruby -e 's = Gem.loaded_specs.fetch("henni"); puts s.version, s.meta
 
 - メソッド本体にある `>=`／`>`、`<=`／`<`、`==`／`!=` を対になる演算子へ置換し、生成したソースを再解析します。
 - プロジェクトを一時ディレクトリにコピーし、元コードのbaselineと各変異をそれぞれ新しいコピー、新しいRubyプロセスで実行します。フレームワークごとに固定seedで実行し、対象ファイルのロード、実行予定の全テストID、実際に完了したIDを照合します。
-- 標準出力はJSON、テストのログは標準エラー出力です。終了コードは0が全変異を検出または対象なし、1が生き残りあり、2がbaseline失敗・実行障害・時間切れなどの判定不能、130が割込みです。baselineの制限時間は既定60秒です。変異の制限時間はスイートごとに `min(--timeout, max(1秒, baseline所要時間 × 5))` とし、`--timeout` を上限として使います。時間切れは引き続き `timeout`・判定不能であり、`killed` には数えません。
+- 標準出力はJSON、テストのログは標準エラー出力です。変異をすべて検出した場合は終了コード0、1件でも生き残った場合は1です。生成できる変異が0件のときは、テストを起動せず JSON に `no_mutations: true` を記録します。この場合の終了コードは既定で0、`--fail-on-empty` 指定時は1です。変異がある場合は `no_mutations: false` です。終了コード2がbaseline失敗・実行障害・時間切れなどの判定不能、130が割込みです。baselineの制限時間は既定60秒です。変異の制限時間はスイートごとに `min(--timeout, max(1秒, baseline所要時間 × 5))` とし、`--timeout` を上限として使います。時間切れは引き続き `timeout`・判定不能であり、`killed` には数えません。
 
-`.git`、`.bundle`、`vendor/bundle`、`henni-report` はコピー対象から除きます。プロジェクト内のsymlinkは各作業コピー内の参照先に張り直し、ソケットとFIFOは警告してコピーを省きます。外部へのリンクや参照先が存在しないリンクは入力エラーです。各プロセスに独立したフルコピーを作るため、依存や生成物が大きいプロジェクトではディスク使用量とコピー時間が増えます。プロジェクト直下のGemfileで起動した場合、lockfileもプロジェクト内に置いてください。テストはコピー内のソースとlockfileを読み込み、依存gemはインストール済みのものを使います。
+`.git`、`.bundle`、`vendor/bundle`、`henni-report` はコピー対象から除きます。プロジェクト内のsymlinkは各作業コピー内の参照先に張り直し、ソケットとFIFOは警告してコピーを省きます。外部へのリンクや参照先が存在しないリンクは入力エラーです。各プロセスに独立したフルコピーを作るため、依存や生成物が大きいプロジェクトではディスク使用量とコピー時間が増えます。プロジェクト内のGemfile（サブディレクトリを含む）で起動した場合、lockfileもプロジェクト内に置いてください。テストはコピー内のソースとlockfileを読み込み、依存gemはインストール済みのものを使います。
 
 レポートの `scope` は `Store::Sale#eligible?` のような修飾名です。`method` には従来どおりメソッド名だけが入ります。変異 ID はメソッド本体からの構造位置を使うので、無関係なメソッドの追加や並べ替えでは変わりません。同じメソッド名の再定義はソース内の出現順で区別します。従来方式で生成した ID とは一致しません。
 
@@ -73,7 +73,7 @@ JSONの各 `suites` に `duration_seconds`（子プロセス起動から終了�
 
 ## 例外による変異検出
 
-assertionの失敗は `killed_by: "assertion"` として記録します。変異後のテストで `NoMethodError`、`TypeError`、`ArgumentError`、`NameError`、`IndexError`、`KeyError`、`RangeError`、`ZeroDivisionError`、`FrozenError` が起きた場合は、同じsnapshotの元コードで同じスイートをもう一度実行します。対象のロード・digest・全テストIDが一致し、元コードが再度成功したときだけ `killed_by: "exception"` と判定します。再確認は元コードの実行なので、制限時間には `--timeout` の設定値を使います。再確認の結果はスイートの `baseline_recheck` に残ります。
+変異後のテストでassertionが失敗した場合、または `NoMethodError`、`TypeError`、`ArgumentError`、`NameError`、`IndexError`、`KeyError`、`RangeError`、`ZeroDivisionError`、`FrozenError` が起きた場合は、同じsnapshotの元コードで同じスイートをもう一度実行します。対象のロード・digest・全テストIDが一致し、元コードが再度成功したときだけ assertionの失敗を `killed_by: "assertion"`、例外を `killed_by: "exception"` と判定します。再確認は元コードの実行なので、制限時間には `--timeout` の設定値を使います。再確認の結果はスイートの `baseline_recheck` に残ります。
 
 起動・suiteの失敗、未完了のテスト、`IOError`・`Errno::*`・DB接続エラーなど、上記以外の例外は引き続き判定不能です。再確認は一度だけなので、非決定的なテストの安定性を保証するものではありません。
 
