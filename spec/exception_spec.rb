@@ -77,6 +77,24 @@ RSpec.describe "mutation runtime exceptions" do
     end
   end
 
+  it "keeps a group setup failure inconclusive when RSpec reports every unrun example as failed" do
+    FileUtils.mkdir_p(File.join(@project, "spec"))
+    File.write(File.join(@project, "spec/name_spec.rb"), <<~RUBY)
+      require_relative "../lib/name"
+      RSpec.describe(Name) do
+        before(:context) { Name.of(nil) }
+        it("first") { expect(true).to be(true) }
+        it("second") { expect(true).to be(true) }
+      end
+    RUBY
+    code, report = run_report("rspec")
+    suite = report.fetch("mutations").first.fetch("suites").fetch("rspec")
+    expect(code).to eq(2)
+    expect(suite).to include("status" => "error", "reason" => "RSpec process or suite error")
+    expect(suite.fetch("failures").size).to eq(2)
+    expect(suite).not_to have_key("baseline_recheck")
+  end
+
   it "also detects runtime exceptions through Minitest's UnexpectedError wrapper" do
     FileUtils.mkdir_p(File.join(@project, "test"))
     File.write(File.join(@project, "test/name_test.rb"), <<~RUBY)
