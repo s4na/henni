@@ -98,6 +98,17 @@ RSpec.describe Henni::Planner do
     end
   end
 
+  it "keeps a negative integer valid in a multi-argument command call" do
+    { "0" => [-1, 2], "0**2" => [1, 2] }.each do |argument, expected|
+      source = "def pair(a,b) = [a,b]\ndef value; pair #{argument}, 2; end"
+      planner = described_class.new("x.rb", source, operators: ["integer"])
+      site = planner.plan.find { |mutation| mutation[:before] == "0" && mutation[:after].include?("-1") }
+      klass = Class.new
+      klass.class_eval(planner.apply(site))
+      expect(klass.new.value).to eq(expected)
+    end
+  end
+
   it "keeps a negative integer mutation as the base of a power" do
     planner = described_class.new("x.rb", "def square = 0**2", operators: ["integer"])
     mutation = planner.plan.find { |site| site[:before] == "0" && site[:after].include?("-1") }

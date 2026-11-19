@@ -90,7 +90,7 @@ module Henni
       name.start_with?("::") ? name.delete_prefix("::") : [owner, name].compact.join("::")
     end
 
-    def replacements(node)
+    def replacements(node, parent)
       case node
       when Prism::CallNode
         token = node.message_loc
@@ -113,11 +113,12 @@ module Henni
         end
       when Prism::IntegerNode
         if @operators.include?("integer")
+          power_base = parent.is_a?(Prism::CallNode) && parent.name == :** && parent.receiver.equal?(node)
           [node.value + 1, node.value - 1].each do |value|
-            # Keep a negative replacement together as an operand of exponentiation.
-            literal = if value.negative?
-                        "(#{value})"
-                      elsif node.location.slice.start_with?("-", "+")
+            literal = if value.negative? && power_base
+                        # Group the base without introducing a command-call argument list.
+                        " begin #{value} end"
+                      elsif !value.negative? && node.location.slice.start_with?("-", "+")
                         # The original sign can separate a keyword from its argument (return-1).
                         " #{value}"
                       else
@@ -131,10 +132,10 @@ module Henni
       end
     end
 
-    def visit_body(node, method_name, scope, definition, route, mutations)
+    def visit_body(node, method_name, scope, definition, route, mutations, parent = nil)
       return if node.is_a?(Prism::DefNode) || node.is_a?(Prism::SingletonClassNode)
 
-      replacements(node) do |operator, token, after|
+      replacements(node, parent) do |operator, token, after|
         before = token.slice.encode("UTF-8")
         next if after == before
 
@@ -146,7 +147,7 @@ module Henni
                        length: token.length, before: before, after: after }
       end
       node.child_nodes.each_with_index do |child, i|
-        visit_body(child, method_name, scope, definition, route + [i], mutations) if child
+        visit_body(child, method_name, scope, definition, route + [i], mutations, node) if child
       end
     end
   end
