@@ -56,13 +56,16 @@ module Henni
     def run_suite(name, pattern, source, previous, measure_lines: false)
       Dir.mktmpdir("henni-run") do |tmp|
         work = File.join(tmp, "project")
+        started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
         FileUtils.cp_r(@snapshot, work)
+        copy_seconds = Process.clock_gettime(Process::CLOCK_MONOTONIC) - started
         File.binwrite(File.join(work, @target), source)
         result_path = File.join(tmp, "result.json")
         timeout, baseline_duration = timeout_for(previous)
         started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
         status = execute(name, pattern, work, result_path, timeout, measure_lines)
-        timing = { duration_seconds: Process.clock_gettime(Process::CLOCK_MONOTONIC) - started,
+        test_seconds = Process.clock_gettime(Process::CLOCK_MONOTONIC) - started
+        timing = { duration_seconds: test_seconds, duration: { copy_seconds: copy_seconds, test_seconds: test_seconds },
                    timeout_seconds: timeout, timeout_source: baseline_duration ? "baseline" : "configured" }
         timing[:baseline_duration_seconds] = baseline_duration if baseline_duration
         unless status

@@ -4,46 +4,16 @@ require "json"
 require "optparse"
 require "pathname"
 require_relative "henni/planner"
+require_relative "henni/ignore_list"
 require_relative "henni/suites"
 require_relative "henni/executor"
+require_relative "henni/snapshot"
 
 module Henni
-  OMIT = %w[.git .bundle vendor/bundle henni-report].freeze
+  OMIT = Snapshot::OMIT
 
-  def self.snapshot(root, dest)
-    raise ArgumentError, "temporary directory must be outside the project" if dest.start_with?(root + "/") || root == "/"
-
-    root = File.realpath(root)
-    Dir.mkdir(dest)
-    copy = lambda do |relative|
-      Dir.each_child(File.join(root, relative)) do |name|
-        path = File.join(relative, name).delete_prefix("/")
-        next if OMIT.include?(path)
-        source = File.join(root, path)
-        output = File.join(dest, path)
-        case File.lstat(source).ftype
-        when "directory"
-          Dir.mkdir(output)
-          copy.call(path)
-        when "file"
-          FileUtils.copy_file(source, output, true)
-        when "link"
-          resolved = File.realpath(source)
-          referent = Pathname.new(resolved).relative_path_from(Pathname.new(root)).to_s
-          if referent == ".." || referent.start_with?("../") || OMIT.any? { |entry| referent == entry || referent.start_with?(entry + "/") }
-            raise ArgumentError, "link points outside snapshot inputs: #{path}"
-          end
-          # An absolute source link must still resolve inside every worker copy.
-          link = Pathname.new(resolved).relative_path_from(Pathname.new(File.dirname(source)))
-          File.symlink(link, output)
-        when "socket", "fifo"
-          warn "henni: skipping runtime endpoint #{path}"
-        else
-          raise ArgumentError, "unsupported project entry: #{path}"
-        end
-      end
-    end
-    copy.call("")
+  def self.snapshot(root, dest, exclude: [])
+    Snapshot.new(exclude).copy(root, dest)
   end
 
   def self.run(args)
@@ -53,6 +23,7 @@ module Henni
     runner = "auto"
     spec_pattern = nil
     test_pattern = nil
+    excludes = []
     options = OptionParser.new do |parser|
       parser.banner = "Usage: henni run [options] RELATIVE_FILE.rb"
       parser.on("--fail-on-empty", "Exit 1 if there are no mutations") { fail_on_empty = true }
@@ -60,6 +31,7 @@ module Henni
       parser.on("--single-process-coverage", "Measure baseline lines in single-process suites") { single_process_coverage = true }
       parser.on("--rspec-pattern GLOB") { |value| spec_pattern = value }
       parser.on("--minitest-pattern GLOB") { |value| test_pattern = value }
+      parser.on("--exclude GLOB", "Exclude a project-relative path (repeatable)") { |glob| excludes << glob }
       parser.on("--timeout SECONDS", Float) { |seconds| timeout = seconds }
     end
     if args == ["--help"] || args == ["run", "--help"]
@@ -75,13 +47,19 @@ module Henni
       raise ArgumentError, "expected a project-relative Ruby file"
     end
 
+    input = Snapshot.new(excludes)
+    raise ArgumentError, "target is excluded from snapshot: #{target}" if input.excluded?(target, root: Dir.pwd)
+
     report = { schema_version: 1, target: target, mutations: [], complete: false }
     Dir.mktmpdir("henni-input") do |tmp|
       base = File.join(File.realpath(tmp), "project")
-      snapshot(Dir.pwd, base)
+      started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+      input.copy(Dir.pwd, base)
+      report[:duration] = { snapshot_seconds: Process.clock_gettime(Process::CLOCK_MONOTONIC) - started }
       source = File.binread(File.join(base, target))
       planner = Planner.new(target, source)
       report[:mutations] = planner.plan.map { |mutation| mutation.merge(status: "pending") }
+      report[:stale_ignores] = IgnoreList.load(base, target).apply(report[:mutations])
       report[:no_mutations] = report[:mutations].empty?
       unless report[:no_mutations]
         suites = Suites.discover(base, runner, spec_pattern, test_pattern)
@@ -91,6 +69,8 @@ module Henni
         baseline = report[:baseline] = executor.run(source, measure_lines: single_process_coverage)
         if baseline[:status] == "passed"
           report[:mutations].each do |mutation|
+            next if mutation[:status] == "ignored"
+
             if single_process_coverage
               mutation[:baseline_line_status] = Executor.line_status(baseline, mutation[:line])
             end
@@ -110,7 +90,8 @@ module Henni
     end
     counts = report[:mutations].map { |mutation| mutation[:status] }.tally
     report[:counts] = counts
-    report[:complete] = (counts.keys - %w[killed survived uncovered invalid]).empty?
+    report[:complete] = (counts.keys - %w[killed survived uncovered invalid ignored]).empty? &&
+                        (!report[:baseline] || report[:baseline][:status] == "passed")
     puts JSON.pretty_generate(report)
     return 2 unless report[:complete]
     return 1 if fail_on_empty && report[:no_mutations]
