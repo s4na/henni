@@ -40,7 +40,9 @@ RSpec.describe "henni with a nested Gemfile" do
               "BUNDLE_LOCKFILE" => lockfile, "BUNDLE_FROZEN" => "false" }
       path = Bundler.settings.path
       env["BUNDLE_PATH"] = File.expand_path(path.base_path, Bundler.root) unless path.use_system_gems?
-      log, status = Open3.capture2e(env, "bundle", "lock", "--local", chdir: app)
+      # An offline resolution has no registry checksums to put in a fresh lock.
+      lock_env = env.merge("BUNDLE_LOCKFILE_CHECKSUMS" => "false")
+      log, status = Open3.capture2e(lock_env, "bundle", "lock", "--local", chdir: app)
       expect(status).to be_success, log
       original_lock = File.binread(lockfile)
       output, log, status = Open3.capture3(env.merge("BUNDLE_FROZEN" => "true"), "bundle", "exec",
