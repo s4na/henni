@@ -30,6 +30,7 @@ RSpec.describe "henni run" do
     original = File.binread(path)
     code, weak = run_cli
     expect(code).to eq(1)
+    expect(weak.fetch("no_mutations")).to be(false)
     expect(weak.fetch("counts")).to eq("survived" => 1)
     File.open(spec_path, "a") do |file|
       file.puts 'RSpec.describe(Discount) { it("includes the threshold") { expect(Discount.eligible?(1_000)).to be(true) } }'
@@ -47,7 +48,8 @@ RSpec.describe "henni run" do
     mutation = Henni::Planner.new(target, source).plan.first
     entry = mutation.slice(:path, :id, :scope_fingerprint).merge(reason: "boundary excluded by the caller")
     File.write(File.join(@project, ".henni-ignore.json"), JSON.generate([entry]))
-    code, report = run_cli
+    code, report = run_cli("--fail-on-empty")
+    expect(report).to include("no_mutations" => false, "baseline" => include("status" => "passed"))
     expect([code, report["counts"], report["stale_ignores"]]).to eq([0, { "ignored" => 1 }, []])
     expect(report.fetch("mutations").first).to include("reason" => entry[:reason])
 
@@ -55,6 +57,16 @@ RSpec.describe "henni run" do
     code, report = run_cli
     expect([code, report["counts"]]).to eq([1, { "survived" => 1 }])
     expect(report.fetch("stale_ignores").first).to include("id" => entry[:id])
+  end
+
+  it "distinguishes an empty plan and optionally fails the quality gate" do
+    File.write(File.join(@project, target), "def unchanged(x) = x\n")
+    [[], ["--fail-on-empty"]].each do |options|
+      code, report = run_cli(*options)
+      expect(code).to eq(options.empty? ? 0 : 1)
+      expect(report).to include("complete" => true, "no_mutations" => true, "counts" => {})
+      expect(report).not_to have_key("baseline")
+    end
   end
 
   it "keeps internal links in the worker and skips Unix sockets" do
@@ -119,6 +131,44 @@ RSpec.describe "henni run" do
     expect(code).to eq(2)
     expect(report.dig("baseline", "example_ids").size).to eq(2)
     expect(report.fetch("mutations").first).to include("status" => "error", "reason" => "RSpec did not run the expected examples")
+  end
+
+  it "rejects a different RSpec declaration occupying the same scoped ID" do
+    [
+      # Same description and ID, different source line.
+      <<~RUBY,
+        if Discount.eligible?(1_000)
+          it("case") { expect(true).to be(true) }
+        else
+          it("case") { expect(true).to be(true) }
+        end
+      RUBY
+      # Same source line and ID, different declared description.
+      'it(Discount.eligible?(1_000) ? "eligible" : "other") { expect(true).to be(true) }'
+    ].each do |declarations|
+      File.write(spec_path, "require_relative '../lib/discount'\nRSpec.describe Discount do\n#{declarations}\nend\n")
+      code, report = run_cli
+      expect(code).to eq(2)
+      expect(report.dig("baseline", "status")).to eq("passed")
+      expect(report.dig("mutations", 0, "reason")).to eq("RSpec example definitions changed from baseline")
+    end
+  end
+
+  it "does not compare the runtime matcher descriptions of unnamed examples" do
+    File.write(spec_path, <<~RUBY)
+      require_relative "../lib/discount"
+      RSpec.describe Discount do
+        it do
+          if Discount.eligible?(1_000)
+            expect(1).to eq(1)
+          else
+            expect(2).to eq(2)
+          end
+        end
+      end
+    RUBY
+    code, report = run_cli
+    expect([code, report.fetch("counts")]).to eq([1, { "survived" => 1 }]), report.inspect
   end
 
   it "reports a deadline independently of expectation failures" do

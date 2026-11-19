@@ -67,12 +67,13 @@ module Henni
 
         result = JSON.parse(File.read(result_path), symbolize_names: true)
         classified = classify(name, result, status, Digest::SHA256.hexdigest(source), previous).merge(timing)
-        if classified[:status] == "killed" && classified[:killed_by] == "exception"
+        if classified[:status] == "killed"
           original = File.binread(File.join(@snapshot, @target))
           confirmation = run_suite(name, pattern, original, nil)
           classified[:baseline_recheck] = confirmation
           unless confirmation[:status] == "passed" && confirmation[:digest] == previous[:digest] &&
-                 confirmation[:loaded] == previous[:loaded] && confirmation[:example_ids] == previous[:example_ids]
+                 confirmation[:loaded] == previous[:loaded] && confirmation[:example_ids] == previous[:example_ids] &&
+                 confirmation[:example_set_digest] == previous[:example_set_digest]
             classified[:status] = "error"
             classified[:reason] = "original suite did not reproduce the passing baseline"
             classified.delete(:killed_by)
@@ -90,17 +91,23 @@ module Henni
       [timeout, duration]
     end
 
+    def project_relative_path(path)
+      expanded = File.expand_path(path)
+      absolute = File.join(File.realpath(File.dirname(expanded)), File.basename(expanded))
+      prefix = File.realpath(Dir.pwd) + "/"
+      absolute.delete_prefix(prefix) if absolute.start_with?(prefix)
+    end
+
     def execute(name, pattern, work, result_path, timeout)
       env = {}
       env["PARALLEL_WORKERS"] = "1" if name == "minitest"
       gemfile = ENV["BUNDLE_GEMFILE"]
-      if gemfile && File.identical?(File.dirname(File.expand_path(gemfile)), Dir.pwd)
-        env["BUNDLE_GEMFILE"] = File.join(work, File.basename(gemfile))
+      if gemfile && (relative = project_relative_path(gemfile))
+        env["BUNDLE_GEMFILE"] = File.join(work, relative)
         if ENV["BUNDLE_LOCKFILE"]
-          lockfile = File.realdirpath(ENV.fetch("BUNDLE_LOCKFILE"))
-          prefix = File.realpath(Dir.pwd) + "/"
-          raise ArgumentError, "bundle lockfile must be inside the project" unless lockfile.start_with?(prefix)
-          env["BUNDLE_LOCKFILE"] = File.join(work, lockfile.delete_prefix(prefix))
+          lockfile = project_relative_path(ENV.fetch("BUNDLE_LOCKFILE"))
+          raise ArgumentError, "bundle lockfile must be inside the project" unless lockfile
+          env["BUNDLE_LOCKFILE"] = File.join(work, lockfile)
         end
         %i[with without only].each do |setting|
           groups = Array(Bundler.settings[setting])
@@ -161,10 +168,14 @@ module Henni
                  end
       reason = if !status.exited? || status.exitstatus != result[:exit_code] || result[:suite_error]
                  "#{label} process or suite error"
+               elsif result[:target_changed]
+                 "target file changed during the suite"
                elsif digest != result[:digest] || (previous && previous[:loaded] != result[:loaded])
                  "target digest or require path mismatch"
                elsif result[:dry_run] || ids.empty? || ids != result.fetch(:expected_ids).sort || (previous && ids != previous[:example_ids])
                  "#{label} did not run the expected examples"
+               elsif previous && result[:example_set_digest] != previous[:example_set_digest]
+                 "#{label} example definitions changed from baseline"
                elsif examples.any? { |example| !%w[passed failed].include?(example[:status]) }
                  "pending or incomplete example"
                elsif !failures.empty? && !detected
@@ -187,7 +198,7 @@ module Henni
         detail
       end
       { status: verdict, killed_by: killed_by, reason: reason, digest: result[:digest], loaded: result[:loaded], example_ids: ids,
-        failures: failure_details }.compact
+        example_set_digest: result[:example_set_digest], failures: failure_details }.compact
     end
   end
 end
