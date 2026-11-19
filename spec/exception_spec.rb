@@ -148,6 +148,29 @@ RSpec.describe "mutation runtime exceptions" do
     end
   end
 
+  it "leaves a flaky assertion inconclusive when the original suite fails its recheck" do
+    Dir.mktmpdir do |state|
+      marker = File.join(state, "baseline-passed")
+      FileUtils.mkdir_p(File.join(@project, "spec"))
+      File.write(File.join(@project, "spec/name_spec.rb"), <<~RUBY)
+        require_relative "../lib/name"
+        RSpec.describe(Name) do
+          it do
+            marker = #{marker.inspect}
+            first_run = !File.exist?(marker)
+            File.write(marker, "ran")
+            expect(first_run).to be(true)
+          end
+        end
+      RUBY
+      code, report = run_report("rspec")
+      expect(code).to eq(2)
+      suite = report.fetch("mutations").first.fetch("suites").fetch("rspec")
+      expect(suite).to include("status" => "error", "baseline_recheck" => include("status" => "error"))
+      expect(suite).not_to have_key("killed_by")
+    end
+  end
+
   it "keeps infrastructure failures and suite setup failures inconclusive" do
     FileUtils.mkdir_p(File.join(@project, "spec"))
     [

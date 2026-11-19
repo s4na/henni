@@ -65,7 +65,7 @@ JSONの各 `suites` に `duration_seconds`（子プロセス起動から終了�
 
 ## 例外による変異検出
 
-assertionの失敗は `killed_by: "assertion"` として記録します。変異後のテストで `NoMethodError`、`TypeError`、`ArgumentError`、`NameError`、`IndexError`、`KeyError`、`RangeError`、`ZeroDivisionError`、`FrozenError` が起きた場合は、同じsnapshotの元コードで同じスイートをもう一度実行します。対象のロード・digest・全テストIDが一致し、元コードが再度成功したときだけ `killed_by: "exception"` と判定します。再確認は元コードの実行なので、制限時間には `--timeout` の設定値を使います。再確認の結果はスイートの `baseline_recheck` に残ります。
+変異後のテストでassertionが失敗した場合、または `NoMethodError`、`TypeError`、`ArgumentError`、`NameError`、`IndexError`、`KeyError`、`RangeError`、`ZeroDivisionError`、`FrozenError` が起きた場合は、同じsnapshotの元コードで同じスイートをもう一度実行します。対象のロード・digest・全テストIDが一致し、元コードが再度成功したときだけ assertionの失敗を `killed_by: "assertion"`、例外を `killed_by: "exception"` と判定します。再確認は元コードの実行なので、制限時間には `--timeout` の設定値を使います。再確認の結果はスイートの `baseline_recheck` に残ります。
 
 起動・suiteの失敗、未完了のテスト、`IOError`・`Errno::*`・DB接続エラーなど、上記以外の例外は引き続き判定不能です。再確認は一度だけなので、非決定的なテストの安定性を保証するものではありません。
 
