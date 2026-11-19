@@ -50,6 +50,35 @@ RSpec.describe "henni suite discovery and verdicts" do
     expect(run_cli(1)["counts"]).to eq("survived" => 1)
   end
 
+  %w[rspec minitest].each do |runner|
+    it "rejects a regenerated target with #{runner}, including when its bytes are restored" do
+      path = runner == "rspec" ? "spec/regenerated_spec.rb" : "test/regenerated_test.rb"
+      test = if runner == "rspec"
+               'RSpec.describe("threshold") { it { expect(eligible?(10)).to be(true) } }'
+             else
+               "class BoundaryTest < Minitest::Test; def test_threshold; assert eligible?(10); end; end"
+             end
+      write(path, <<~RUBY)
+        target = File.expand_path("../lib/threshold.rb", __dir__)
+        bytes = File.binread(target)
+        if bytes.include?(" > ")
+          # Generate the original implementation, require it, then restore the mutant.
+          File.write(target + ".new", bytes.sub(" > ", " >= "))
+          File.rename(target + ".new", target)
+          require target
+          File.binwrite(target, bytes)
+        else
+          require target
+        end
+        #{test}
+      RUBY
+      report = run_cli(2, "--runner", runner)
+      expect(report.dig("baseline", "status")).to eq("passed")
+      expect(report.dig("mutations", 0, "reason")).to eq("target file changed during the suite")
+      expect(report.fetch("counts")).to eq("error" => 1)
+    end
+  end
+
   it "runs a passing suite that never requires the target alongside a suite that detects it" do
     write("spec/other_spec.rb", "RSpec.describe('another unit') { it { expect(2 + 2).to eq(4) } }")
     minitest("assert eligible?(10)")
