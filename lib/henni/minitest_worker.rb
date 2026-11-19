@@ -25,10 +25,15 @@ module Henni
       assertion = failures.all? do |failure|
         failure.is_a?(Minitest::Assertion) && !failure.is_a?(Minitest::UnexpectedError) && !failure.is_a?(Minitest::Skip)
       end
+      causes = failures.map do |failure|
+        actual = failure.is_a?(Minitest::UnexpectedError) ? failure.error : failure
+        { assertion: failure.is_a?(Minitest::Assertion) && !failure.is_a?(Minitest::UnexpectedError) &&
+                     !failure.is_a?(Minitest::Skip), exception: actual.class.name }
+      end
       error = failures.find { |failure| failure.is_a?(Minitest::UnexpectedError) }
       exception = error ? error.error : failures.first
       @examples << { id: "#{result.class_name}##{result.name}", status: status,
-                     assertion: assertion, exception: exception&.class&.name }
+                     assertion: assertion, exception: exception&.class&.name, causes: causes }
     end
 
     def report

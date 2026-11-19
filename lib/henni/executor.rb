@@ -5,6 +5,10 @@ require "tmpdir"
 
 module Henni
   class Executor
+    MIN_MUTATION_TIMEOUT = 1.0
+    BASELINE_TIMEOUT_FACTOR = 5.0
+    RUNTIME_FAILURES = %w[NoMethodError TypeError ArgumentError NameError IndexError KeyError RangeError ZeroDivisionError FrozenError].freeze
+
     def initialize(snapshot, target, timeout, suites)
       @snapshot = snapshot
       @target = target
@@ -31,6 +35,9 @@ module Henni
                 else
                   { status: "survived" }
                 end
+      if verdict[:status] == "killed"
+        verdict[:killed_by] = results.any? { |result| result[:killed_by] == "exception" } ? "exception" : "assertion"
+      end
       verdict.merge(suites: suites, loaded: loaded, digest: results.first[:digest],
                     example_ids: results.flat_map { |result| result.fetch(:example_ids, []) },
                     failures: results.flat_map { |result| result.fetch(:failures, []) })
@@ -46,32 +53,64 @@ module Henni
         copy_seconds = Process.clock_gettime(Process::CLOCK_MONOTONIC) - started
         File.binwrite(File.join(work, @target), source)
         result_path = File.join(tmp, "result.json")
+        timeout, baseline_duration = timeout_for(previous)
         started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
-        status = execute(name, pattern, work, result_path)
-        duration = { copy_seconds: copy_seconds, test_seconds: Process.clock_gettime(Process::CLOCK_MONOTONIC) - started }
-        outcome = if !status
-                    { status: "timeout", reason: "#{name} exceeded #{@timeout}s" }
-                  elsif !File.file?(result_path)
-                    { status: "error", reason: "#{name} exited without results (#{status})" }
-                  else
-                    result = JSON.parse(File.read(result_path), symbolize_names: true)
-                    classify(name, result, status, Digest::SHA256.hexdigest(source), previous)
-                  end
-        outcome.merge(duration: duration)
+        status = execute(name, pattern, work, result_path, timeout)
+        test_seconds = Process.clock_gettime(Process::CLOCK_MONOTONIC) - started
+        timing = { duration_seconds: test_seconds, duration: { copy_seconds: copy_seconds, test_seconds: test_seconds },
+                   timeout_seconds: timeout, timeout_source: baseline_duration ? "baseline" : "configured" }
+        timing[:baseline_duration_seconds] = baseline_duration if baseline_duration
+        unless status
+          phase = previous ? "mutation after a passing baseline" : "baseline"
+          return timing.merge(status: "timeout", reason: "#{name} #{phase} exceeded #{timeout}s")
+        end
+        unless File.file?(result_path)
+          return timing.merge(status: "error", reason: "#{name} exited without results (#{status})")
+        end
+
+        result = JSON.parse(File.read(result_path), symbolize_names: true)
+        classified = classify(name, result, status, Digest::SHA256.hexdigest(source), previous).merge(timing)
+        if classified[:status] == "killed"
+          original = File.binread(File.join(@snapshot, @target))
+          confirmation = run_suite(name, pattern, original, nil)
+          classified[:baseline_recheck] = confirmation
+          unless confirmation[:status] == "passed" && confirmation[:digest] == previous[:digest] &&
+                 confirmation[:loaded] == previous[:loaded] && confirmation[:example_ids] == previous[:example_ids] &&
+                 confirmation[:example_set_digest] == previous[:example_set_digest]
+            classified[:status] = "error"
+            classified[:reason] = "original suite did not reproduce the passing baseline"
+            classified.delete(:killed_by)
+          end
+        end
+        classified
       end
     end
 
-    def execute(name, pattern, work, result_path)
+    def timeout_for(previous)
+      duration = previous && previous[:duration_seconds]
+      return [@timeout, nil] unless previous && previous[:status] == "passed" && duration.is_a?(Numeric) && duration.finite? && duration.positive?
+
+      timeout = [@timeout, [MIN_MUTATION_TIMEOUT, duration * BASELINE_TIMEOUT_FACTOR].max].min
+      [timeout, duration]
+    end
+
+    def project_relative_path(path)
+      expanded = File.expand_path(path)
+      absolute = File.join(File.realpath(File.dirname(expanded)), File.basename(expanded))
+      prefix = File.realpath(Dir.pwd) + "/"
+      absolute.delete_prefix(prefix) if absolute.start_with?(prefix)
+    end
+
+    def execute(name, pattern, work, result_path, timeout)
       env = {}
       env["PARALLEL_WORKERS"] = "1" if name == "minitest"
       gemfile = ENV["BUNDLE_GEMFILE"]
-      if gemfile && File.identical?(File.dirname(File.expand_path(gemfile)), Dir.pwd)
-        env["BUNDLE_GEMFILE"] = File.join(work, File.basename(gemfile))
+      if gemfile && (relative = project_relative_path(gemfile))
+        env["BUNDLE_GEMFILE"] = File.join(work, relative)
         if ENV["BUNDLE_LOCKFILE"]
-          lockfile = File.realdirpath(ENV.fetch("BUNDLE_LOCKFILE"))
-          prefix = File.realpath(Dir.pwd) + "/"
-          raise ArgumentError, "bundle lockfile must be inside the project" unless lockfile.start_with?(prefix)
-          env["BUNDLE_LOCKFILE"] = File.join(work, lockfile.delete_prefix(prefix))
+          lockfile = project_relative_path(ENV.fetch("BUNDLE_LOCKFILE"))
+          raise ArgumentError, "bundle lockfile must be inside the project" unless lockfile
+          env["BUNDLE_LOCKFILE"] = File.join(work, lockfile)
         end
         %i[with without only].each do |setting|
           groups = Array(Bundler.settings[setting])
@@ -83,7 +122,7 @@ module Henni
       worker = File.expand_path("#{name}_worker.rb", __dir__)
       pid = Process.spawn(env, RbConfig.ruby, "-Ilib", worker, @target, result_path, *Array(pattern),
                           chdir: work, pgroup: true, out: :err)
-      deadline = Process.clock_gettime(Process::CLOCK_MONOTONIC) + @timeout
+      deadline = Process.clock_gettime(Process::CLOCK_MONOTONIC) + timeout
       loop do
         finished = Process.waitpid2(pid, Process::WNOHANG)
         return finished.last if finished
@@ -125,13 +164,21 @@ module Henni
       examples = result.fetch(:examples)
       ids = examples.map { |example| example.fetch(:id) }.sort
       failures = examples.select { |example| example[:status] == "failed" }
-      detected = previous && result[:loaded] && !status.success? && failures.all? { |example| example[:assertion] }
+      detected = previous && previous[:status] == "passed" && result[:loaded] && !status.success? &&
+                 failures.all? do |example|
+                   causes = example.fetch(:causes, [example])
+                   !causes.empty? && causes.all? { |cause| cause[:assertion] || RUNTIME_FAILURES.include?(cause[:exception]) }
+                 end
       reason = if !status.exited? || status.exitstatus != result[:exit_code] || result[:suite_error]
                  "#{label} process or suite error"
+               elsif result[:target_changed]
+                 "target file changed during the suite"
                elsif digest != result[:digest] || (previous && previous[:loaded] != result[:loaded])
                  "target digest or require path mismatch"
                elsif result[:dry_run] || ids.empty? || ids != result.fetch(:expected_ids).sort || (previous && ids != previous[:example_ids])
                  "#{label} did not run the expected examples"
+               elsif previous && result[:example_set_digest] != previous[:example_set_digest]
+                 "#{label} example definitions changed from baseline"
                elsif examples.any? { |example| !%w[passed failed].include?(example[:status]) }
                  "pending or incomplete example"
                elsif !failures.empty? && !detected
@@ -144,8 +191,17 @@ module Henni
                 elsif failures.empty? then "survived"
                 else "killed"
                 end
-      { status: verdict, reason: reason, digest: result[:digest], loaded: result[:loaded], example_ids: ids,
-        failures: failures.map { |example| example.slice(:id, :exception) } }.compact
+      killed_by = if verdict == "killed"
+                    failures.all? { |example| example[:assertion] } ? "assertion" : "exception"
+                  end
+      failure_details = failures.map do |example|
+        detail = example.slice(:id, :exception)
+        causes = example[:causes]
+        detail[:causes] = causes if causes && causes.size > 1
+        detail
+      end
+      { status: verdict, killed_by: killed_by, reason: reason, digest: result[:digest], loaded: result[:loaded], example_ids: ids,
+        example_set_digest: result[:example_set_digest], failures: failure_details }.compact
     end
   end
 end
