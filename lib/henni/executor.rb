@@ -161,6 +161,8 @@ module Henni
                  end
       reason = if !status.exited? || status.exitstatus != result[:exit_code] || result[:suite_error]
                  "#{label} process or suite error"
+               elsif result[:target_changed]
+                 "target file changed during the suite"
                elsif digest != result[:digest] || (previous && previous[:loaded] != result[:loaded])
                  "target digest or require path mismatch"
                elsif result[:dry_run] || ids.empty? || ids != result.fetch(:expected_ids).sort || (previous && ids != previous[:example_ids])
