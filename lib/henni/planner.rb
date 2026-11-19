@@ -74,6 +74,7 @@ module Henni
         if (after = REPLACEMENTS[before])
           id = Digest::SHA256.hexdigest([@path, scope, definition, route.join("."), before, after].join("\0"))
           mutations << { id: id, path: @path, method: method_name, scope: scope, line: token.start_line,
+                         single_line: node.location.start_line == node.location.end_line,
                          offset: token.start_offset, before: before, after: after }
         end
       end

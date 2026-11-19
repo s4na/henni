@@ -63,6 +63,14 @@ bundle exec henni run --rspec-pattern 'checks/**/*_spec.rb' --minitest-pattern '
 
 JSONの各 `suites` に `duration_seconds`（子プロセス起動から終了処理まで）、`timeout_seconds`、`timeout_source` を記録します。計測済みの成功baselineから変異の制限を算出した場合は `baseline_duration_seconds` も記録します。計測値が無効・未取得なら設定値を使い、`timeout_source` は `configured` とします。コピー時間は含みません。変異の時間切れは `reason` でbaseline通過後の実行であることを示しますが、変異が原因と断定するものではありません。負荷変動による時間切れも判定不能のまま扱います。
 
+## 到達していない変異を調べる
+
+各スイートで対象のRubyコードがすべて同じworkerプロセスで実行され、ほかのツールがCoverageを操作しない構成では、`--single-process-coverage` を指定できます。元コードの各スイートで行カバレッジを測定し、`baseline.suites.<runner>.line_hits` に1行目から順に実行回数を記録します。`null` は測定値がないことを示します。
+
+変異ごとの `baseline_line_status` は、いずれかのスイートで対象行が実行されれば `reached`、すべてが0回なら `missed`、残りは `unknown` です。全スイートで生き残り、単一行の比較式が `missed` の場合だけ `uncovered`（終了コード1）になります。複数行にまたがる式や測定不足の行は、生き残れば `survived` のままです。行の実行にはテストのセットアップも含まれます。
+
+子プロセスや外部サーバーでも対象のRubyコードを実行する場合や、SimpleCovなどが測定を管理している場合は、このオプションを外してください。既定では全スイートのテスト結果だけで判定します。
+
 ## 例外による変異検出
 
 assertionの失敗は `killed_by: "assertion"` として記録します。変異後のテストで `NoMethodError`、`TypeError`、`ArgumentError`、`NameError`、`IndexError`、`KeyError`、`RangeError`、`ZeroDivisionError`、`FrozenError` が起きた場合は、同じsnapshotの元コードで同じスイートをもう一度実行します。対象のロード・digest・全テストIDが一致し、元コードが再度成功したときだけ `killed_by: "exception"` と判定します。再確認は元コードの実行なので、制限時間には `--timeout` の設定値を使います。再確認の結果はスイートの `baseline_recheck` に残ります。

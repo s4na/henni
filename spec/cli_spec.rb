@@ -41,6 +41,26 @@ RSpec.describe "henni run" do
     expect(File.binread(path)).to eq(original)
   end
 
+  it "distinguishes missed and reached comparisons in a single-process suite" do
+    File.open(File.join(@project, target), "a") do |file|
+      file.puts "def never_called(x)\n  x == :unused\nend"
+    end
+    code, report = run_cli("--single-process-coverage")
+    expect([code, report["complete"], report["counts"]]).to eq([1, true, { "survived" => 1, "uncovered" => 1 }])
+    expect(report.fetch("mutations").map { |site| site.fetch("baseline_line_status") }).to eq(%w[reached missed])
+  end
+
+  it "keeps survival when baseline coverage is unavailable" do
+    File.write(spec_path, <<~SPEC)
+      require_relative "../lib/discount"
+      Coverage.result if defined?(Coverage) && Coverage.running?
+      RSpec.describe(Discount) { it { expect(Discount.eligible?(1_001)).to be(true) } }
+    SPEC
+    code, report = run_cli("--single-process-coverage")
+    expect([code, report["counts"]]).to eq([1, { "survived" => 1 }])
+    expect(report.fetch("mutations").first.fetch("baseline_line_status")).to eq("unknown")
+  end
+
   it "keeps internal links in the worker and skips Unix sockets" do
     source = File.join(@project, target)
     original = File.binread(source)
