@@ -67,7 +67,7 @@ module Henni
 
         result = JSON.parse(File.read(result_path), symbolize_names: true)
         classified = classify(name, result, status, Digest::SHA256.hexdigest(source), previous).merge(timing)
-        if classified[:status] == "killed" && classified[:killed_by] == "exception"
+        if classified[:status] == "killed"
           original = File.binread(File.join(@snapshot, @target))
           confirmation = run_suite(name, pattern, original, nil)
           classified[:baseline_recheck] = confirmation
