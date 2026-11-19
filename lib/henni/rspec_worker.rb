@@ -25,6 +25,21 @@ def aggregated_failure_leaves(failure)
   end
 end
 
+# RSpec reports a before(:context) failure once for each unrun example.
+# Only failures reported inside Example#run have that example as current.
+class Henni::RSpecFailureObserver
+  attr_reader :failed_outside_example
+
+  def example_failed(notification)
+    @failed_outside_example = true unless RSpec.current_example.equal?(notification.example)
+  end
+end
+
+observer = Henni::RSpecFailureObserver.new
+RSpec.configure do |config|
+  config.before(:suite) { config.reporter.register_listener(observer, :example_failed) }
+end
+
 target, output, pattern = ARGV.shift(3)
 report = Henni::WorkerReport.new(target, output)
 args = ["--seed", "12345", "--no-fail-fast"]
@@ -58,7 +73,8 @@ end
 definitions = config.reporter.examples.map do |example|
   [example.id, example.location, example.metadata.fetch(:henni_declared_description)]
 end
-report.write(exit_code: exit_code, dry_run: config.dry_run, suite_error: !!RSpec.world.non_example_failure,
+report.write(exit_code: exit_code, dry_run: config.dry_run,
+             suite_error: !!(RSpec.world.non_example_failure || observer.failed_outside_example),
              expected_ids: RSpec.world.all_examples.map(&:id), examples: examples,
              example_set_digest: Digest::SHA256.hexdigest(JSON.generate(definitions.sort)))
 exit exit_code
