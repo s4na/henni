@@ -49,11 +49,18 @@ module Henni
   def self.run(args)
     timeout = 60.0
     runner = "auto"
+    operators = ["comparison"]
     spec_pattern = nil
     test_pattern = nil
     options = OptionParser.new do |parser|
       parser.banner = "Usage: henni run [options] RELATIVE_FILE.rb"
       parser.on("--runner NAME", %w[auto both rspec minitest]) { |value| runner = value }
+      parser.on("--operators LIST", Array, "comparison,boolean,condition,integer,logical or all") do |names|
+        operators = names == ["all"] ? Planner::OPERATORS : names
+        unless operators.any? && (operators - Planner::OPERATORS).empty?
+          raise ArgumentError, "expected one or more of #{Planner::OPERATORS.join(", ")} or all"
+        end
+      end
       parser.on("--rspec-pattern GLOB") { |value| spec_pattern = value }
       parser.on("--minitest-pattern GLOB") { |value| test_pattern = value }
       parser.on("--timeout SECONDS", Float) { |seconds| timeout = seconds }
@@ -76,8 +83,9 @@ module Henni
       base = File.join(File.realpath(tmp), "project")
       snapshot(Dir.pwd, base)
       source = File.binread(File.join(base, target))
-      planner = Planner.new(target, source)
+      planner = Planner.new(target, source, operators: operators)
       report[:mutations] = planner.plan.map { |mutation| mutation.merge(status: "pending") }
+      report[:operator_counts] = report[:mutations].map { |mutation| mutation[:operator] }.tally
       unless report[:mutations].empty?
         suites = Suites.discover(base, runner, spec_pattern, test_pattern)
         raise ArgumentError, "no RSpec or Minitest suite found" if suites.empty?

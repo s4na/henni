@@ -47,6 +47,20 @@ bundle exec ruby -e 's = Gem.loaded_specs.fetch("henni"); puts s.version, s.meta
 
 レポートの `scope` は `Store::Sale#eligible?` のような修飾名です。`method` には従来どおりメソッド名だけが入ります。変異 ID はメソッド本体からの構造位置を使うので、無関係なメソッドの追加や並べ替えでは変わりません。同じメソッド名の再定義はソース内の出現順で区別します。従来方式で生成した ID とは一致しません。
 
+## 変異の種類を選ぶ
+
+既定は比較演算子（`comparison`）です。`--operators all` で全種類、`--operators boolean,condition` のようなカンマ区切りで必要な種類だけを実行できます。
+
+| 種類 | 置換例 |
+|---|---|
+| `comparison` | `>=` → `>`、`==` → `!=` |
+| `boolean` | `true` ↔ `false` |
+| `condition` | `if`、`unless`、三項演算子の条件を `true` または `false` に固定 |
+| `integer` | 整数リテラルの値を1増減 |
+| `logical` | `&&` ↔ `||`、`and` ↔ `or` |
+
+JSON の `operator_counts` で種類ごとの生成件数、各変異の `operator` で置換の種類を確認できます。条件の固定では改行数を保ち、ヒアドキュメントを含む条件は対象から外します。
+
 ## 実行するテスト
 
 既定の `--runner auto` は `spec/` または `.rspec` のあるプロジェクトでRSpecを起動し、`test/` 以下に `*_test.rb` または `test_*.rb` があればMinitestも起動します。`test_helper.rb` は通常のヘルパーとしてテストから読み込みます。RSpecは自身の設定でファイルを発見します。Minitestはサブディレクトリを再帰的に探索し、`Minitest::Test` とspec DSLの両方を実行します。Railsのsystem testも対象です。

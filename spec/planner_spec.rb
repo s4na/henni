@@ -61,6 +61,25 @@ RSpec.describe Henni::Planner do
     expect(indexed.call(modules.join)).to eq(indexed.call(modules.reverse.join))
   end
 
+  it "generates unique byte edits for the selected operator families" do
+    source = "def 試す(x, y)\n  if x &&\n     y\n    true\n  else\n    0x10\n  end\nend\n"
+    planner = described_class.new("lib/example.rb", source, operators: Henni::Planner::OPERATORS)
+    sites = planner.plan
+    expect(sites.map { |site| site[:operator] }.tally).to eq("condition" => 2, "logical" => 1, "boolean" => 1, "integer" => 2)
+    expect(sites.select { |site| site[:operator] == "integer" }.map { |site| site[:after] }).to contain_exactly("15", "17")
+    expect(sites.map { |site| site[:id] }.uniq.size).to eq(sites.size)
+    sites.each do |site|
+      changed = planner.apply(site)
+      expect(changed.count("\n")).to eq(source.count("\n"))
+      expect(Prism.parse(changed).success?).to be(true)
+    end
+  end
+
+  it "avoids duplicate edits to a literal predicate and handles word operators" do
+    planner = described_class.new("x.rb", "def f(a,b) = (a and b unless false)", operators: Henni::Planner::OPERATORS)
+    expect(planner.plan.map { |site| site.values_at(:before, :after) }).to contain_exactly(["and", "or"], ["false", "true"])
+  end
+
   it "keeps distinct mutation sites within a single method" do
     mutations = plan("def valid(value) = value >= 1 && value <= 10")
     expect(mutations.map { |mutation| mutation.fetch(:id) }.uniq.size).to eq(2)

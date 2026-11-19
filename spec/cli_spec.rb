@@ -41,6 +41,12 @@ RSpec.describe "henni run" do
     expect(File.binread(path)).to eq(original)
   end
 
+  it "reports and runs only the requested operator family" do
+    File.write(File.join(@project, target), "module Discount; def self.eligible?(_price) = true; end\n")
+    code, report = run_cli("--operators", "boolean")
+    expect([code, report["operator_counts"], report["counts"]]).to eq([0, { "boolean" => 1 }, { "killed" => 1 }])
+  end
+
   it "keeps internal links in the worker and skips Unix sockets" do
     source = File.join(@project, target)
     original = File.binread(source)
