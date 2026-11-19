@@ -16,10 +16,18 @@ module Henni
       @suites = suites
     end
 
-    def run(source, baseline: nil)
+    def self.line_status(baseline, line)
+      counts = baseline.fetch(:suites).values.map { |suite| suite[:line_hits]&.[](line - 1) }
+      return "reached" if counts.any? { |hits| hits && hits.positive? }
+      return "missed" if counts.all? { |hits| hits == 0 }
+
+      "unknown"
+    end
+
+    def run(source, baseline: nil, measure_lines: false)
       suites = @suites.to_h do |name, pattern|
         previous = baseline&.fetch(:suites)&.fetch(name)
-        [name, run_suite(name, pattern, source, previous)]
+        [name, run_suite(name, pattern, source, previous, measure_lines: measure_lines)]
       end
       results = suites.values
       problem = results.find { |result| %w[error timeout].include?(result[:status]) }
@@ -45,7 +53,7 @@ module Henni
 
     private
 
-    def run_suite(name, pattern, source, previous)
+    def run_suite(name, pattern, source, previous, measure_lines: false)
       Dir.mktmpdir("henni-run") do |tmp|
         work = File.join(tmp, "project")
         started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
@@ -55,7 +63,7 @@ module Henni
         result_path = File.join(tmp, "result.json")
         timeout, baseline_duration = timeout_for(previous)
         started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
-        status = execute(name, pattern, work, result_path, timeout)
+        status = execute(name, pattern, work, result_path, timeout, measure_lines)
         test_seconds = Process.clock_gettime(Process::CLOCK_MONOTONIC) - started
         timing = { duration_seconds: test_seconds, duration: { copy_seconds: copy_seconds, test_seconds: test_seconds },
                    timeout_seconds: timeout, timeout_source: baseline_duration ? "baseline" : "configured" }
@@ -70,6 +78,7 @@ module Henni
 
         result = JSON.parse(File.read(result_path), symbolize_names: true)
         classified = classify(name, result, status, Digest::SHA256.hexdigest(source), previous).merge(timing)
+        classified[:line_hits] = result[:line_hits] if measure_lines
         if classified[:status] == "killed"
           original = File.binread(File.join(@snapshot, @target))
           confirmation = run_suite(name, pattern, original, nil)
@@ -101,8 +110,8 @@ module Henni
       absolute.delete_prefix(prefix) if absolute.start_with?(prefix)
     end
 
-    def execute(name, pattern, work, result_path, timeout)
-      env = {}
+    def execute(name, pattern, work, result_path, timeout, measure_lines)
+      env = { "HENNI_BASELINE_LINES" => measure_lines ? "1" : nil }
       env["PARALLEL_WORKERS"] = "1" if name == "minitest"
       gemfile = ENV["BUNDLE_GEMFILE"]
       if gemfile && (relative = project_relative_path(gemfile))

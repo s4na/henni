@@ -144,6 +144,7 @@ module Henni
         key << operator unless operator == "comparison"
         mutations << { id: Digest::SHA256.hexdigest(key.join("\0")), operator: operator, path: @path,
                        method: method_name, scope: scope, line: token.start_line, offset: token.start_offset,
+                       single_line: node.location.start_line == node.location.end_line,
                        length: token.length, before: before, after: after }
       end
       node.child_nodes.each_with_index do |child, i|

@@ -18,6 +18,7 @@ module Henni
 
   def self.run(args)
     timeout = 60.0
+    single_process_coverage = false
     fail_on_empty = false
     runner = "auto"
     operators = ["comparison"]
@@ -28,6 +29,7 @@ module Henni
       parser.banner = "Usage: henni run [options] RELATIVE_FILE.rb"
       parser.on("--fail-on-empty", "Exit 1 if there are no mutations") { fail_on_empty = true }
       parser.on("--runner NAME", %w[auto both rspec minitest]) { |value| runner = value }
+      parser.on("--single-process-coverage", "Measure baseline lines in single-process suites") { single_process_coverage = true }
       parser.on("--operators LIST", Array, "comparison,boolean,condition,integer,logical or all") do |names|
         operators = names == ["all"] ? Planner::OPERATORS : names
         unless operators.any? && (operators - Planner::OPERATORS).empty?
@@ -72,11 +74,14 @@ module Henni
         raise ArgumentError, "no RSpec or Minitest suite found" if suites.empty?
         report[:runners] = suites.keys
         executor = Executor.new(base, target, timeout, suites)
-        baseline = report[:baseline] = executor.run(source)
+        baseline = report[:baseline] = executor.run(source, measure_lines: single_process_coverage)
         if baseline[:status] == "passed"
           report[:mutations].each do |mutation|
             next if mutation[:status] == "ignored"
 
+            if single_process_coverage
+              mutation[:baseline_line_status] = Executor.line_status(baseline, mutation[:line])
+            end
             changed = planner.apply(mutation)
             execution = if Prism.parse(changed, filepath: target, version: "current").success?
                           executor.run(changed, baseline: baseline)
@@ -84,18 +89,22 @@ module Henni
                           { status: "invalid", reason: "mutated source failed to parse" }
                         end
             mutation.merge!(execution)
+            if mutation[:status] == "survived" && mutation[:baseline_line_status] == "missed" &&
+               mutation[:operator] == "comparison" && mutation[:single_line]
+              mutation[:status] = "uncovered"
+            end
           end
         end
       end
     end
     counts = report[:mutations].map { |mutation| mutation[:status] }.tally
     report[:counts] = counts
-    report[:complete] = (counts.keys - %w[killed survived invalid ignored]).empty? &&
+    report[:complete] = (counts.keys - %w[killed survived uncovered invalid ignored]).empty? &&
                         (!report[:baseline] || report[:baseline][:status] == "passed")
     puts JSON.pretty_generate(report)
     return 2 unless report[:complete]
     return 1 if fail_on_empty && report[:no_mutations]
-    counts.key?("survived") ? 1 : 0
+    (counts.key?("survived") || counts.key?("uncovered")) ? 1 : 0
   rescue StandardError => e
     message = e.message.encode("UTF-8", invalid: :replace, undef: :replace).scrub
     failure = { schema_version: 1, complete: false, error: message }
