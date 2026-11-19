@@ -48,11 +48,13 @@ module Henni
 
   def self.run(args)
     timeout = 60.0
+    fail_on_empty = false
     runner = "auto"
     spec_pattern = nil
     test_pattern = nil
     options = OptionParser.new do |parser|
       parser.banner = "Usage: henni run [options] RELATIVE_FILE.rb"
+      parser.on("--fail-on-empty", "Exit 1 if there are no mutations") { fail_on_empty = true }
       parser.on("--runner NAME", %w[auto both rspec minitest]) { |value| runner = value }
       parser.on("--rspec-pattern GLOB") { |value| spec_pattern = value }
       parser.on("--minitest-pattern GLOB") { |value| test_pattern = value }
@@ -78,7 +80,8 @@ module Henni
       source = File.binread(File.join(base, target))
       planner = Planner.new(target, source)
       report[:mutations] = planner.plan.map { |mutation| mutation.merge(status: "pending") }
-      unless report[:mutations].empty?
+      report[:no_mutations] = report[:mutations].empty?
+      unless report[:no_mutations]
         suites = Suites.discover(base, runner, spec_pattern, test_pattern)
         raise ArgumentError, "no RSpec or Minitest suite found" if suites.empty?
         report[:runners] = suites.keys
@@ -102,6 +105,7 @@ module Henni
     report[:complete] = (counts.keys - %w[killed survived invalid]).empty?
     puts JSON.pretty_generate(report)
     return 2 unless report[:complete]
+    return 1 if fail_on_empty && report[:no_mutations]
     counts.key?("survived") ? 1 : 0
   rescue StandardError => e
     message = e.message.encode("UTF-8", invalid: :replace, undef: :replace).scrub
