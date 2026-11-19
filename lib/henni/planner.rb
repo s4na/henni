@@ -46,12 +46,33 @@ module Henni
         scope = "#{namespace}#{separator}#{method_name}"
         definitions[scope] += 1
         if node.body
-          visit_body(node.body, method_name, scope, definitions.fetch(scope), [], mutations)
+          sites = []
+          visit_body(node.body, method_name, scope, definitions.fetch(scope), [], sites)
+          unless sites.empty?
+            fingerprint = scope_fingerprint(node)
+            sites.each { |site| site[:scope_fingerprint] = fingerprint }
+            mutations.concat(sites)
+          end
           visit(node.body, owner, singleton, definitions, mutations)
         end
       else
         node.compact_child_nodes.each { |child| visit(child, owner, singleton, definitions, mutations) }
       end
+    end
+
+    def scope_fingerprint(node)
+      # A heredoc body can extend beyond the closing token of the definition.
+      finish = node.location.end_offset
+      if node.slice.include?("<<")
+        node.breadth_first_search do |child|
+          if child.respond_to?(:closing_loc) && (closing = child.closing_loc)
+            finish = [finish, closing.end_offset].max
+          end
+          false
+        end
+      end
+      start = node.location.start_offset
+      Digest::SHA256.hexdigest(@source.byteslice(start, finish - start))
     end
 
     def receiver_name(receiver, owner)
@@ -81,8 +102,8 @@ module Henni
       when Prism::IfNode, Prism::UnlessNode
         return unless @operators.include?("condition")
         predicate = node.predicate
-        # The boolean operator already offers the same edit for a literal predicate.
-        return if @operators.include?("boolean") && (predicate.is_a?(Prism::TrueNode) || predicate.is_a?(Prism::FalseNode))
+        # Literal predicates belong to the boolean family in every selection.
+        return if predicate.is_a?(Prism::TrueNode) || predicate.is_a?(Prism::FalseNode)
         # Removing an opener while leaving its heredoc body can expose unrelated Ruby.
         return if predicate.breadth_first_search { |child| child.respond_to?(:heredoc?) && child.heredoc? }
 

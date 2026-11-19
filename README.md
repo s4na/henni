@@ -59,7 +59,25 @@ bundle exec ruby -e 's = Gem.loaded_specs.fetch("henni"); puts s.version, s.meta
 | `integer` | 整数リテラルの値を1増減 |
 | `logical` | `&&` ↔ `||`、`and` ↔ `or` |
 
-JSON の `operator_counts` で種類ごとの生成件数、各変異の `operator` で置換の種類を確認できます。条件の固定では改行数を保ち、ヒアドキュメントを含む条件は対象から外します。
+JSON の `operator_counts` で種類ごとの生成件数、各変異の `operator` で置換の種類を確認できます。真偽値リテラルの条件は `boolean` で扱います。条件の固定では改行数を保ち、ヒアドキュメントを含む条件は対象から外します。
+
+## 等価変異を除外する
+
+テストで区別できない理由を確認した変異は、プロジェクト直下の `.henni-ignore.json` に登録できます。JSONレポートの `path`、`id`、`operator`、`scope_fingerprint` をコピーし、判断の理由を `reason` に書きます。
+
+```json
+[
+  {
+    "path": "lib/discount.rb",
+    "id": "<レポートのid>",
+    "operator": "comparison",
+    "scope_fingerprint": "<レポートのscope_fingerprint>",
+    "reason": "入力仕様により境界値を受け付けない"
+  }
+]
+```
+
+未選択の種類の登録は今回の照合対象から外します。従来の `operator` がない登録は `comparison` として扱います。一致した変異は実行を省き、`counts.ignored` に集計します。全件が除外されていても元のスイートの成功を確認します。メソッドの内容が変わった登録や、対象ファイルから消えた変異の登録は `stale_ignores` に載ります。現存する変異は通常どおり実行されるので、理由が今も当てはまるか確認してから登録を更新してください。
 
 ## 実行するテスト
 
