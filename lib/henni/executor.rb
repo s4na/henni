@@ -72,7 +72,8 @@ module Henni
           confirmation = run_suite(name, pattern, original, nil)
           classified[:baseline_recheck] = confirmation
           unless confirmation[:status] == "passed" && confirmation[:digest] == previous[:digest] &&
-                 confirmation[:loaded] == previous[:loaded] && confirmation[:example_ids] == previous[:example_ids]
+                 confirmation[:loaded] == previous[:loaded] && confirmation[:example_ids] == previous[:example_ids] &&
+                 confirmation[:example_set_digest] == previous[:example_set_digest]
             classified[:status] = "error"
             classified[:reason] = "original suite did not reproduce the passing baseline"
             classified.delete(:killed_by)
@@ -165,6 +166,8 @@ module Henni
                  "target digest or require path mismatch"
                elsif result[:dry_run] || ids.empty? || ids != result.fetch(:expected_ids).sort || (previous && ids != previous[:example_ids])
                  "#{label} did not run the expected examples"
+               elsif previous && result[:example_set_digest] != previous[:example_set_digest]
+                 "#{label} example definitions changed from baseline"
                elsif examples.any? { |example| !%w[passed failed].include?(example[:status]) }
                  "pending or incomplete example"
                elsif !failures.empty? && !detected
@@ -187,7 +190,7 @@ module Henni
         detail
       end
       { status: verdict, killed_by: killed_by, reason: reason, digest: result[:digest], loaded: result[:loaded], example_ids: ids,
-        failures: failure_details }.compact
+        example_set_digest: result[:example_set_digest], failures: failure_details }.compact
     end
   end
 end
