@@ -1,7 +1,9 @@
 require "test_helper"
 
 class OfferSystemTest < ActionDispatch::SystemTestCase
-  driven_by :selenium, using: :headless_chrome
+  driven_by :selenium, using: :headless_chrome do |options|
+    options.add_argument("--no-sandbox") if ENV["CI"]
+  end
 
   def test_discount
     offer = Offer.create!(price_cents: 1_000, stock: 2)
