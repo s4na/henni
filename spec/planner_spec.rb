@@ -168,9 +168,19 @@ RSpec.describe Henni::Planner do
     sites = planner.plan
     expect(sites.map { |site| [site[:operator], site[:before], site[:after]] }).to contain_exactly(
       ["string", "'hello'", '""'], ["string", '""', '"henni"'],
-      ["array", "[1, 2]", "[]"], ["return_value", "name", "nil"]
+      ["array", "[1, 2]", "[]"], ["return_value", "name", " nil"]
     )
     sites.each { |site| expect(Prism.parse(planner.apply(site)).success?).to be(true) }
+  end
+
+  it "preserves the return keyword boundary for adjacent signed arguments" do
+    %w[return-1 return+1].each do |expression|
+      planner = described_class.new("x.rb", "def value; #{expression}; end", operators: ["return_value"])
+      mutation = planner.plan.fetch(0)
+      klass = Class.new
+      klass.class_eval(planner.apply(mutation))
+      expect(klass.new.value).to be_nil
+    end
   end
 
   it "does not remove heredoc openers or rewrite multiple return arguments" do

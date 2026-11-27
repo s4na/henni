@@ -163,7 +163,7 @@ module Henni
         if @operators.include?("return_value") && args&.size == 1 && !args.first.is_a?(Prism::SplatNode) &&
            !args.first.is_a?(Prism::NilNode) && !args.first.slice.include?("\n") &&
            !args.first.breadth_first_search { |child| child.respond_to?(:heredoc?) && child.heredoc? }
-          yield "return_value", args.first.location, "nil"
+          yield "return_value", args.first.location, " nil"
         end
       end
     end
