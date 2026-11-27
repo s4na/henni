@@ -28,7 +28,7 @@ module Henni
       parser.banner = "Usage: henni run [options] RELATIVE_FILE.rb"
       parser.on("--fail-on-empty", "Exit 1 if there are no mutations") { fail_on_empty = true }
       parser.on("--runner NAME", %w[auto both rspec minitest]) { |value| runner = value }
-      parser.on("--operators LIST", Array, "comparison,boolean,condition,integer,logical or all") do |names|
+      parser.on("--operators LIST", Array, "#{Planner::OPERATORS.join(',')} or all") do |names|
         operators = names == ["all"] ? Planner::OPERATORS : names
         unless operators.any? && (operators - Planner::OPERATORS).empty?
           raise ArgumentError, "expected one or more of #{Planner::OPERATORS.join(", ")} or all"

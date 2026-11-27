@@ -5,8 +5,13 @@ module Henni
   class Planner
     REPLACEMENTS = { ">=" => ">", ">" => ">=", "<=" => "<", "<" => "<=", "==" => "!=", "!=" => "==" }.freeze
 
-    OPERATORS = %w[comparison boolean condition integer logical].freeze
+    OPERATORS = %w[comparison boolean condition integer logical arithmetic assignment method string array return_value].freeze
     LOGICAL = { "&&" => "||", "||" => "&&", "and" => "or", "or" => "and" }.freeze
+    ARITHMETIC = { "+" => "-", "-" => "+", "*" => "/", "/" => "*", "%" => "*" }.freeze
+    ASSIGNMENT = { "+=" => "-=", "-=" => "+=", "*=" => "/=", "/=" => "*=", "%=" => "*=" }.freeze
+    METHODS = { "select" => "reject", "reject" => "select", "filter" => "reject", "any?" => "none?", "none?" => "any?",
+                "all?" => "none?", "min" => "max", "max" => "min", "min_by" => "max_by", "max_by" => "min_by",
+                "even?" => "odd?", "odd?" => "even?", "positive?" => "negative?", "negative?" => "positive?" }.freeze
 
     def initialize(path, source, operators: ["comparison"])
       @operators = operators
@@ -97,6 +102,19 @@ module Henni
         if @operators.include?("comparison") && !node.call_operator_loc && (after = REPLACEMENTS[token&.slice])
           yield "comparison", token, after
         end
+        if @operators.include?("arithmetic") && node.receiver && !node.call_operator_loc &&
+           node.arguments&.arguments&.size == 1 && (after = ARITHMETIC[token&.slice])
+          yield "arithmetic", token, after
+        end
+        if @operators.include?("method") && node.receiver && node.call_operator_loc && (after = METHODS[token&.slice])
+          yield "method", token, after
+        end
+      when Prism::LocalVariableOperatorWriteNode, Prism::InstanceVariableOperatorWriteNode,
+           Prism::ClassVariableOperatorWriteNode, Prism::GlobalVariableOperatorWriteNode,
+           Prism::ConstantOperatorWriteNode, Prism::ConstantPathOperatorWriteNode,
+           Prism::CallOperatorWriteNode, Prism::IndexOperatorWriteNode
+        token = node.binary_operator_loc
+        yield "assignment", token, ASSIGNMENT[token.slice] if @operators.include?("assignment") && ASSIGNMENT.key?(token.slice)
       when Prism::TrueNode, Prism::FalseNode
         yield "boolean", node.location, node.is_a?(Prism::TrueNode) ? "false" : "true" if @operators.include?("boolean")
       when Prism::IfNode, Prism::UnlessNode
@@ -129,6 +147,24 @@ module Henni
         end
       when Prism::AndNode, Prism::OrNode
         yield "logical", node.operator_loc, LOGICAL.fetch(node.operator_loc.slice) if @operators.include?("logical")
+      when Prism::StringNode
+        if @operators.include?("string") && node.opening_loc && ["'", '"'].include?(node.opening_loc.slice) &&
+           node.closing_loc && !node.slice.include?("\n")
+          yield "string", node.location, node.unescaped.empty? ? '"henni"' : '""'
+        end
+      when Prism::ArrayNode
+        if @operators.include?("array") && node.opening_loc&.slice == "[" && node.closing_loc&.slice == "]" &&
+           !node.elements.empty? && !node.slice.include?("\n") &&
+           !node.breadth_first_search { |child| child.respond_to?(:heredoc?) && child.heredoc? }
+          yield "array", node.location, "[]"
+        end
+      when Prism::ReturnNode
+        args = node.arguments&.arguments
+        if @operators.include?("return_value") && args&.size == 1 && !args.first.is_a?(Prism::SplatNode) &&
+           !args.first.is_a?(Prism::NilNode) && !args.first.slice.include?("\n") &&
+           !args.first.breadth_first_search { |child| child.respond_to?(:heredoc?) && child.heredoc? }
+          yield "return_value", args.first.location, "nil"
+        end
       end
     end
 

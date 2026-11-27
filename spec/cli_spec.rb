@@ -48,6 +48,27 @@ RSpec.describe "henni run" do
     expect([code, report["operator_counts"], report["counts"]]).to eq([0, { "boolean" => 1 }, { "killed" => 1 }])
   end
 
+  it "runs each new family and detects its changed behavior" do
+    examples = {
+      "arithmetic" => ["10 + 2", "12"],
+      "assignment" => ["value = 10; value += 2; value", "12"],
+      "method" => ["[1, 2].select { |item| item > 1 }", "[2]"],
+      "string" => ['"hello"', '"hello"'],
+      "array" => ["[1, 2]", "[1, 2]"],
+      "return_value" => ["return 12", "12"]
+    }
+    examples.each do |operator, (body, expected)|
+      File.write(File.join(@project, target), "module Discount; def self.eligible?(_price); #{body}; end; end\n")
+      File.write(spec_path, <<~SPEC)
+        require_relative "../lib/discount"
+        RSpec.describe(Discount) { it { expect(Discount.eligible?(0)).to eq(#{expected}) } }
+      SPEC
+      code, report = run_cli("--operators", operator)
+      expect([code, report["operator_counts"], report["counts"]]).to eq([0, { operator => 1 }, { "killed" => 1 }]), report.inspect
+      expect(report.fetch("mutations").first.fetch("killed_by")).to eq("assertion")
+    end
+  end
+
   it "applies a reasoned ignore only to the reviewed method revision" do
     path = File.join(@project, target)
     source = File.read(path)

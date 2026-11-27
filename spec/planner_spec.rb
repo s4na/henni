@@ -127,4 +127,69 @@ RSpec.describe Henni::Planner do
     expect(mutations.map { |mutation| mutation.fetch(:id) }.uniq.size).to eq(2)
     expect(mutations.map { |mutation| mutation.fetch(:scope) }).to eq(["Object#valid", "Object#valid"])
   end
+
+  it "generates the selected arithmetic, assignment and method substitutions" do
+    source = <<~RUBY
+      def calculate(x, y, obj)
+        x + y
+        x -= y
+        @total *= y
+        obj.value /= y
+        obj[0] %= y
+        obj.select { |v| v }
+        obj.any?
+        obj&.min
+        -x
+      end
+    RUBY
+    planner = described_class.new("lib/example.rb", source, operators: %w[arithmetic assignment method])
+    sites = planner.plan
+    expect(sites.map { |site| [site[:operator], site[:before], site[:after]] }).to contain_exactly(
+      ["arithmetic", "+", "-"], ["assignment", "-=", "+="], ["assignment", "*=", "/="],
+      ["assignment", "/=", "*="], ["assignment", "%=", "*="], ["method", "select", "reject"],
+      ["method", "any?", "none?"], ["method", "min", "max"]
+    )
+    expect(sites.map { |site| site[:id] }.uniq.size).to eq(sites.size)
+    sites.each { |site| expect(Prism.parse(planner.apply(site)).success?).to be(true) }
+  end
+
+  it "mutates simple literals and explicit return values while leaving complex forms intact" do
+    source = <<~'RUBY'
+      def sample(name)
+        'hello'
+        ""
+        "hello #{name}"
+        [1, 2]
+        []
+        return name
+      end
+    RUBY
+    planner = described_class.new("lib/example.rb", source, operators: %w[string array return_value])
+    sites = planner.plan
+    expect(sites.map { |site| [site[:operator], site[:before], site[:after]] }).to contain_exactly(
+      ["string", "'hello'", '""'], ["string", '""', '"henni"'],
+      ["array", "[1, 2]", "[]"], ["return_value", "name", "nil"]
+    )
+    sites.each { |site| expect(Prism.parse(planner.apply(site)).success?).to be(true) }
+  end
+
+  it "does not remove heredoc openers or rewrite multiple return arguments" do
+    source = <<~'RUBY'
+      def sample
+        [<<~TEXT]
+          hello
+        TEXT
+        return 1, 2
+      end
+    RUBY
+    planner = described_class.new("lib/example.rb", source, operators: %w[string array return_value])
+    expect(planner.plan).to be_empty
+  end
+
+  it "does not change existing comparison IDs when additional families are selected" do
+    source = "def f(a, b) = a + b > 1"
+    baseline = described_class.new("lib/example.rb", source).plan.first
+    expanded = described_class.new("lib/example.rb", source, operators: Henni::Planner::OPERATORS).plan
+    expect(expanded.find { |site| site[:operator] == "comparison" }[:id]).to eq(baseline[:id])
+  end
 end
